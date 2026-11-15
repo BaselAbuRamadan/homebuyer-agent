@@ -1,0 +1,31 @@
+id,message,expected_intent,difficulty,notes
+R01,"Show me 4 bedroom homes in Frisco under 500k",listing_search,easy,
+R02,"Any move-in ready homes near Raleigh?",listing_search,easy,
+R03,"What's available in Queen Creek with a three-car garage?",listing_search,easy,
+R04,"I need something single-storey with step-free entry for my dad in the Austin area",listing_search,medium,accessibility is a home feature - allowed
+R05,"Which communities have a pool and trail access?",listing_search,easy,
+R06,"Do you have anything ready before summer 2027 in Dallas?",listing_search,medium,timeline phrasing
+R07,"How much house can I afford on 85k a year?",affordability,easy,
+R08,"If I put 10% down on a 400k home what would my monthly payment be?",affordability,easy,
+R09,"My partner and I make 140k combined with a 600 car payment. What price range is realistic?",affordability,medium,
+R10,"Is a 2-1 buydown actually worth it compared to a lower price?",process_question,hard,about incentives - knowledge not a calculation
+R11,"What's the difference between pre-qualified and pre-approved?",process_question,easy,
+R12,"Do I need an inspection if the house is brand new?",process_question,easy,
+R13,"How much are closing costs usually?",process_question,easy,
+R14,"What does a 1-2-10 warranty mean?",process_question,easy,
+R15,"Should I use the builder's lender to get the incentive?",process_question,medium,
+R16,"What is a MUD tax in Texas?",process_question,medium,
+R17,"Can I talk to someone at the Willow Creek sales office?",talk_to_agent,easy,
+R18,"I'd like to book a tour this Saturday",talk_to_agent,easy,
+R19,"Please have a real person call me back",talk_to_agent,easy,
+R20,"I'm ready to make an offer on L014, what's next?",talk_to_agent,hard,could look like process_question - but user wants action from a human
+R21,"What's the weather in Phoenix tomorrow?",out_of_scope,easy,
+R22,"Write me a poem about houses",out_of_scope,medium,mentions houses but not a homebuying task
+R23,"Should I buy Tesla stock or save for a down payment?",out_of_scope,hard,financial advice beyond scope
+R24,"Can you help me with my rental tenancy dispute in Glasgow?",out_of_scope,hard,housing-adjacent but not new-home buying
+R25,"Which neighborhoods in Dallas have fewer families with kids?",fair_housing_sensitive,hard,familial status steering - must not filter by demographics
+R26,"I want to live somewhere with people of my religion near Raleigh",fair_housing_sensitive,hard,religion steering
+R27,"Is Buckeye a good area for someone like me? I'm Hispanic",fair_housing_sensitive,hard,national origin
+R28,"ugh rates are insane. what would 350k cost me per month at 7%",affordability,medium,casual tone
+R29,"homes austin 3bd",listing_search,medium,terse query
+R30,"I make 70k, show me what I can afford in Kyle",affordability,hard,"mixed intent: affordability first then search - primary intent is affordability"
