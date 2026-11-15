@@ -14,8 +14,11 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **Next:** watch for affordability vs process_question confusion in the M2 eval. A clearer definition ("calculations with the user's numbers" vs "explaining how something works") might fix it.
 
 ## M2: Evaluation and error analysis
-- Failure patterns I found:
-- What I changed in router_v2 and why:
+- **Built:** an eval script that runs all test messages through the router and reports accuracy, accuracy by difficulty, precision/recall per intent and a confusion matrix. Each run is saved in `results/`. I grew the test set from 30 to 50 (20 tricky cases of my own) and added a 15-message held-out set.
+- **Failure patterns I found:** (1) v1 labelled by *topic* instead of *what the user wants next*: "is a buydown worth it?" went to affordability, and "ready to make an offer" went to process question. (2) Prompt injection worked on v1 and v2. (3) Coded fair-housing language slipped through.
+- **What I changed:** v2 added rules for offers and "worth it / compared" questions. It fixed its two targets but broke two other cases, so the score didn't move (94%). v3 said numbers mean affordability, added coded steering phrases and blocked injection: 98%, but it over-flagged a tax question. v4 says the *reason* for avoiding an area decides the label: 100% on the 50 cases, and 15/15 on the held-out set (v1 got 10/15).
+- **What clicked:** a prompt fix can break cases you weren't looking at. You have to rerun everything every time, and test on cases you didn't tune on. v2 scored 100% on the first 40 cases and 94% once 10 new ones were added.
+- **Decisions I made:** label by "what should the system do next"; offers always go to a human; when unsure, over-flag fair housing rather than miss it; keep temperature at 0 because a classifier needs consistency, not creativity.
 
 ## M3: Tracing
 -

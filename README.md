@@ -57,14 +57,30 @@ flowchart LR
 
 I didn't want a demo that only *looks* good, so every change was measured against labelled test sets.
 
-### V1 router: 40 labelled messages (30 starter + 10 hard cases I wrote)
-<!-- TODO (M2): paste real numbers from results/v1_vs_v2.md -->
-| Prompt | Overall accuracy | Hard cases | Fair-housing recall |
-|---|---|---|---|
-| `router_v1` (baseline) | __% | __% | __% |
-| `router_v2` (after error analysis) | __% | __% | __% |
+### V1 router: 50 labelled messages (30 starter + 20 tricky cases I wrote)
+Each prompt was run on the same 50 messages. Versions 2–4 were run twice to check the results were stable, and both runs gave the same score.
 
-**What error analysis showed:** <!-- TODO: your 2-3 failure patterns and what you changed -->
+| Prompt | Overall | Hard cases | Fair-housing recall* |
+|---|---|---|---|
+| `router_v1` (baseline) | 47/50 (94%) | 20/23 (87%) | 6/6 (100%) |
+| `router_v2` | 47/50 (94%) | 20/23 (87%) | 5/6 (83%) |
+| `router_v3` | 49/50 (98%) | 22/23 (96%) | 6/6 (100%) |
+| `router_v4` (current) | **50/50 (100%)** | **23/23 (100%)** | **6/6 (100%)** |
+
+\* *Fair-housing recall = out of all the messages that really were fair-housing issues, how many the router caught. For a safety check, this is the number that matters most.*
+
+**Held-out check (15 new messages, never used to tune the prompt):** `router_v1` 10/15 (67%), `router_v4` **15/15 (100%)** on two runs. *Honest caveat: I wrote these after v4 existed, so they aren't fully "blind". Both test sets are small.*
+
+**What error analysis showed, and what I changed:**
+1. **v1 labelled by topic, not by what the user wanted.** "Is a buydown worth it?" went to *affordability* because it mentions money, although the user wanted an explanation. "I'm ready to make an offer" went to *process question* instead of a human. → **v2** added clear rules for both.
+2. **v2 fixed those cases but broke two others.** It sent a cost question with real numbers to *process question*, and it missed coded fair-housing language ("away from the rough areas, you know what I mean"). Repeat runs showed this was a real regression, not noise. → **v3** said numbers mean *affordability*, added a list of coded steering phrases, and blocked prompt injection ("ignore your instructions…").
+3. **v3 over-flagged.** "Don't show me anything in a MUD district, taxes are mad" was flagged as fair housing. → **v4** says the **reason** decides the label: avoiding an area for money, risk, land or distance is fine, while avoiding it because of *who lives there* is not.
+
+**Trade-off I chose:** when the router can't tell, flagging an innocent question costs the user a rephrase, but missing real steering is a legal and ethical failure. So I'd rather it over-flag than under-flag.
+
+**Temperature stays at 0**, so the router gives the same answer every time as far as possible. Higher temperature adds randomness, which helps creative writing but hurts a classifier.
+
+Full results: [results/v1_vs_v4.md](results/v1_vs_v4.md) · [results/v1_vs_v2.md](results/v1_vs_v2.md) · every run is saved in [results/](results/).
 
 ### V2 planning agent: 10 multi-step scenarios
 <!-- TODO (M6): paste real numbers -->
@@ -104,7 +120,7 @@ pip install -r requirements.txt
 cp .env.example .env          # add your OpenAI key
 phoenix serve                 # in a second terminal → http://localhost:6006
 python scripts/check_setup.py
-python evals/run_v1_eval.py --prompt router_v2 --trace
+python evals/run_v1_eval.py --prompt router_v4
 streamlit run app.py
 ```
 
