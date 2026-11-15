@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "homebuyer-agent"
+version = "0.1.0"
+description = "Homebuyer assistant agent: V1 router and V2 planning agent, built by hand with the openai SDK."
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Ship the prompt .txt files with the package so load_prompt() finds them.
+[tool.setuptools.package-data]
+homebuyer_agent = ["prompts/*.txt"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

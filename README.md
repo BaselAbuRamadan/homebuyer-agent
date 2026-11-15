@@ -1,6 +1,7 @@
 # 🏡 Homebuyer Assistant Agent
 
 **An evaluated, traced AI agent that helps people buying new-construction homes search listings, understand affordability and work through the buying process, while following US fair-housing rules.**
+> 🚧 **Work in progress.** I'm building this in milestones; results and demo will be added as each stage is completed.
 
 Built by **Basel Aburamadan** (MSc Computing Science, University of Glasgow) to learn agentic AI development end to end, building on the LinkedIn Learning course *Agentic AI: Build Your First Agentic AI System*.
 
