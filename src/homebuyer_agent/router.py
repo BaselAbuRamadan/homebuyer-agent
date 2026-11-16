@@ -5,10 +5,15 @@ and our code relies on that choice because the output is a typed object.
 """
 from enum import Enum
 
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 from pydantic import BaseModel, Field
 
 from homebuyer_agent.config import PROMPTS_DIR
 from homebuyer_agent.llm import structured_completion
+from homebuyer_agent.tracing import get_tracer
+
+# The best prompt so far (see results/v1_vs_v4.md). Older versions stay for comparison.
+DEFAULT_PROMPT_VERSION = "router_v4"
 
 
 class Intent(str, Enum):
@@ -43,7 +48,21 @@ def load_prompt(version: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def route(message: str, prompt_version: str = "router_v1") -> RouterDecision:
-    """Classify one user message and return the router's decision."""
-    system_prompt = load_prompt(prompt_version)
-    return structured_completion(system_prompt, message, RouterDecision)
+def route(message: str, prompt_version: str = DEFAULT_PROMPT_VERSION) -> RouterDecision:
+    """Classify one user message and return the router's decision.
+
+    The work happens inside a custom "route" span. In Phoenix it shows the message,
+    the decision and labels for prompt version, intent and confidence. The OpenAI
+    call made inside it appears as a child span.
+    """
+    with get_tracer().start_as_current_span("route") as span:
+        span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, OpenInferenceSpanKindValues.CHAIN.value)
+        span.set_attribute(SpanAttributes.INPUT_VALUE, message)
+        span.set_attribute("router.prompt_version", prompt_version)
+
+        decision = structured_completion(load_prompt(prompt_version), message, RouterDecision)
+
+        span.set_attribute("router.intent", decision.intent.value)
+        span.set_attribute("router.confidence", decision.confidence)
+        span.set_attribute(SpanAttributes.OUTPUT_VALUE, decision.model_dump_json())
+        return decision

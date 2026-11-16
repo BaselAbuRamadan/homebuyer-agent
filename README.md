@@ -96,8 +96,15 @@ Full results: [results/v1_vs_v4.md](results/v1_vs_v4.md) · [results/v1_vs_v2.md
 
 Every run is traced in **Arize Phoenix**: route → retrieve → plan → tool calls → answer, with latency and token counts per step. This is how I debugged failures rather than guessing.
 
-<!-- TODO (M3/M5): screenshot -->
-![Phoenix trace](assets/phoenix_trace.png)
+**Finding failures:** each eval case is a trace labelled with its expected and predicted intent. Filtering on `eval.correct == False` shows only the cases the router got wrong (here, the baseline `router_v1`):
+
+![Phoenix: failed eval cases](assets/phoenix_failures.png)
+
+**Seeing why it failed:** opening case R44 shows the exact message the model received, a prompt-injection attempt, and its answer. The baseline router obeyed the injection and then made up a reason. `router_v4` blocks this.
+
+![Phoenix trace of a prompt injection](assets/phoenix_trace.png)
+
+<!-- TODO (M5): add a screenshot of the full V2 trace tree: route → retrieve → plan → tools → answer -->
 
 ## Product thinking
 
@@ -120,7 +127,7 @@ pip install -r requirements.txt
 cp .env.example .env          # add your OpenAI key
 phoenix serve                 # in a second terminal → http://localhost:6006
 python scripts/check_setup.py
-python evals/run_v1_eval.py --prompt router_v4
+python evals/run_v1_eval.py --prompt router_v4 --trace
 streamlit run app.py
 ```
 

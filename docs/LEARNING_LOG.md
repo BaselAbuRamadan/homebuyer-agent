@@ -21,7 +21,10 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **Decisions I made:** label by "what should the system do next"; offers always go to a human; when unsure, over-flag fair housing rather than miss it; keep temperature at 0 because a classifier needs consistency, not creativity.
 
 ## M3: Tracing
--
+- **Built:** `tracing.py` connects to Phoenix and records every OpenAI call. `route()` and each eval case have their own labelled spans, so one test message becomes a trace: `eval_case R44 → route → ChatCompletion`. It's off unless I pass `--trace`.
+- **What clicked:** a *span* is one step, and a *trace* is all the steps for one request. The CSV tells me *that* R44 failed. The trace showed me *why*: the model received "ignore your previous instructions…", obeyed, then invented the reason "the user wants to speak to a person".
+- **Gotcha:** the green "OK" in Phoenix only means the API call worked, not that the answer was right. I added an `eval.correct` label so I can filter with `eval.correct == False`.
+- **Also noticed:** R45 (Arabic) failed on v1 this run but passed on an earlier v1 run, more evidence that v1 is unstable on borderline cases.
 
 ## M4: Tools
 -

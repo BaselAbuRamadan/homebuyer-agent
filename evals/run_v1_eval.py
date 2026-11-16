@@ -7,15 +7,17 @@ Runs every case in data/eval/v1_router_cases.csv through route() and reports:
 
 Saves a timestamped CSV of every prediction and a markdown summary to results/.
 
-Run:  python evals/run_v1_eval.py --prompt router_v1
+Run:  python evals/run_v1_eval.py --prompt router_v1 [--trace] [--cases v1_router_holdout.csv]
 """
 import argparse
 from datetime import datetime
 
 import pandas as pd
+from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttributes
 
 from homebuyer_agent.config import EVAL_DIR, RESULTS_DIR, get_model
-from homebuyer_agent.router import Intent, route
+from homebuyer_agent.router import DEFAULT_PROMPT_VERSION, Intent, route
+from homebuyer_agent.tracing import get_tracer, setup_tracing
 
 INTENTS: list[str] = [intent.value for intent in Intent]
 
@@ -27,13 +29,25 @@ def run_cases(cases: pd.DataFrame, prompt_version: str) -> pd.DataFrame:
     stopping the whole run, so a single bad call doesn't waste the others.
     """
     rows = []
+    tracer = get_tracer()
     for i, case in enumerate(cases.itertuples(), start=1):
-        try:
-            decision = route(case.message, prompt_version=prompt_version)
-            predicted, confidence, reasoning = decision.intent.value, decision.confidence, decision.reasoning
-        except Exception as e:  # noqa: BLE001 - we want to log any failure and continue
-            predicted, confidence, reasoning = "ERROR", None, f"{type(e).__name__}: {e}"
-        correct = predicted == case.expected_intent
+        # One trace per case: eval_case -> route -> OpenAI call.
+        # The labels let you filter failed cases in Phoenix (eval.correct = false).
+        with tracer.start_as_current_span(f"eval_case {case.id}") as span:
+            span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, OpenInferenceSpanKindValues.CHAIN.value)
+            span.set_attribute(SpanAttributes.INPUT_VALUE, case.message)
+            span.set_attribute("eval.case_id", case.id)
+            span.set_attribute("eval.expected_intent", case.expected_intent)
+            span.set_attribute("eval.difficulty", case.difficulty)
+            try:
+                decision = route(case.message, prompt_version=prompt_version)
+                predicted, confidence, reasoning = decision.intent.value, decision.confidence, decision.reasoning
+            except Exception as e:  # noqa: BLE001 - we want to log any failure and continue
+                predicted, confidence, reasoning = "ERROR", None, f"{type(e).__name__}: {e}"
+            correct = predicted == case.expected_intent
+            span.set_attribute("eval.predicted_intent", predicted)
+            span.set_attribute("eval.correct", correct)
+            span.set_attribute(SpanAttributes.OUTPUT_VALUE, predicted)
         conf_text = f"{confidence:.2f}" if confidence is not None else "n/a"
         print(f"{'✅' if correct else '❌'} [{case.id}] ({i}/{len(cases)}, {case.difficulty}) {case.message}")
         print(f"   expected:  {case.expected_intent}")
@@ -132,12 +146,15 @@ def build_summary(preds: pd.DataFrame, prompt_version: str, model: str, timestam
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate the V1 router.")
-    parser.add_argument("--prompt", default="router_v1", help="prompt version, e.g. router_v1 or router_v2")
+    parser.add_argument("--prompt", default=DEFAULT_PROMPT_VERSION, help="prompt version, e.g. router_v1 or router_v4")
+    parser.add_argument("--trace", action="store_true", help="send traces to Phoenix (run 'phoenix serve' first)")
     parser.add_argument(
         "--cases", default="v1_router_cases.csv",
         help="test file in data/eval/, e.g. v1_router_holdout.csv for the held-out set",
     )
     args = parser.parse_args()
+    if args.trace:
+        setup_tracing()
 
     model = get_model()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

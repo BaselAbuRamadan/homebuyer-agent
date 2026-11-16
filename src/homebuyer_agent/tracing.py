@@ -1,0 +1,49 @@
+"""Tracing: send a record of every agent step to the local Arize Phoenix server.
+
+Two words to know:
+- span:  one step, e.g. "route() ran" or "one OpenAI call". It has a start, an end,
+         inputs, outputs and labels (attributes).
+- trace: all spans for ONE request, nested as a tree, e.g.
+         eval_case R10 -> route -> OpenAI call.
+
+Call setup_tracing() once at the start of a script. Until it is called, every
+span in the code is a cheap "no-op", so tracing is entirely optional.
+"""
+import os
+import urllib.request
+
+from openinference.instrumentation.openai import OpenAIInstrumentor
+from opentelemetry import trace
+from phoenix.otel import register
+
+PROJECT_NAME = "homebuyer-agent"
+
+
+def get_tracer() -> trace.Tracer:
+    """Return the tracer our own code uses to create custom spans (route, eval_case, ...)."""
+    return trace.get_tracer("homebuyer_agent")
+
+
+def setup_tracing() -> None:
+    """Connect to Phoenix and start recording every OpenAI call automatically.
+
+    - register() creates the tracer provider: the part that collects spans and sends
+      them to Phoenix's /v1/traces endpoint under our project name.
+    - OpenAIInstrumentor patches the openai SDK so each API call becomes a span
+      holding the exact messages sent, the reply, latency and token counts.
+    """
+    base_url = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/")
+    try:
+        urllib.request.urlopen(base_url, timeout=3)
+    except Exception:
+        print(f"⚠️  Phoenix is not reachable at {base_url}. Start it with: phoenix serve")
+        print("    The run will continue, but no traces will be recorded.\n")
+
+    tracer_provider = register(
+        endpoint=f"{base_url}/v1/traces",
+        project_name=PROJECT_NAME,
+        batch=False,     # send each span immediately: simpler, and nothing is lost when a short script exits
+        verbose=False,
+    )
+    OpenAIInstrumentor().instrument(tracer_provider=tracer_provider)
+    print(f"🔭 Tracing on: open {base_url} → project '{PROJECT_NAME}'\n")
