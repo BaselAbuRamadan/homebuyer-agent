@@ -33,7 +33,12 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **Decisions I made:** two separate affordability tools rather than one combined tool, because simpler inputs mean fewer wrong calls from the model. The V2 eval will count both as "affordability_calculator". Rates are in percent (6.5, not 0.065), and typos like 65% give an error instead of a silly answer.
 
 ## M5: V2 planning agent
--
+- **Built:** `run_agent()`: route → retrieve (BM25 over the 7 guides) → plan (structured output) → tool loop (max 6 rounds) → answer → fair-housing check. Fair housing, tour booking and off-topic questions stop early with fixed safe replies. There's also a CLI (`scripts/chat.py`) with an "under the hood" view, and 76 tests, with the loop tested against a fake model.
+- **What clicked:** the "agent" is just a loop. The model asks for a tool, Python runs it and sends back the result, and this repeats until the model has enough to answer. Python keeps control of the limit, the tools and the safety checks. Phoenix shows the whole tree, so I could see A01 pass the $305k result from one tool straight into the next.
+- **What broke:** tests caught two bugs. "How *much* are closing costs" found the wrong guide, because BM25 thought the rare word "much" was important. And "predominantly *young* families" slipped past the answer check. A01 retrieval misses kb_002 because the user says "earn/afford" and the guide says "income/debt-to-income".
+- **Decision I made:** when nothing fits the budget, suggest the closest homes above it instead of just saying "nothing found". This is done in the search tool (Python works out "over budget by $X"), not by trusting the model to remember.
+- **Memory:** replying "yes" to "want the monthly cost?" was classed as out_of_scope, because each message was handled alone. I added short-term memory (the last 6 messages go to the router, planner and tool loop), so follow-ups work. It lives only while the chat is open.
+- **Bug found by testing it myself:** after "yes", the agent used a $37,604 down payment although I'd said $25k saved. The tool only took a *percent*, so the model converted dollars to percent itself and got it wrong. Fix: the tool also accepts `down_payment_usd`, and the rule sits in the tool's own description, where the model reads it at call time (moving it there took it from inconsistent to 3/3 correct). Lesson: any time a tool's inputs don't match how users talk, the model fills the gap with arithmetic.
 
 ## M6: V2 evaluation and LLM-as-judge
 - Judge vs me agreement:

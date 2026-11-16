@@ -40,27 +40,42 @@ def principal_and_interest(loan: float, annual_rate_pct: float, years: int) -> f
 
 def monthly_payment(
     price: float,
-    down_payment_pct: float,
     annual_rate: float,
+    down_payment_pct: float | None = None,
+    down_payment_usd: float | None = None,
     years: int = DEFAULT_YEARS,
     property_tax_rate: float = DEFAULT_PROPERTY_TAX_RATE_PCT,
     hoa_monthly: float = 0.0,
     insurance_annual: float = DEFAULT_INSURANCE_ANNUAL,
+    monthly_budget: float | None = None,
 ) -> dict:
     """Itemised monthly cost of buying one home.
 
     Args:
         price: home price in USD.
-        down_payment_pct: down payment in percent of price (10 = 10%).
         annual_rate: mortgage interest rate in percent (6.5 = 6.5%).
+        down_payment_pct: down payment in percent of price (10 = 10%), OR
+        down_payment_usd: down payment in dollars (25000). Give exactly one.
+            Accepting dollars means the model never converts "$25k saved" into a
+            percent itself (it got that wrong in testing: 11.9% instead of 7.9%).
         years: loan term in years.
         property_tax_rate: yearly property tax in percent of price (2.1 = 2.1%).
         hoa_monthly: HOA dues per month in USD.
         insurance_annual: homeowners insurance per year in USD.
+        monthly_budget: optional monthly housing budget in USD (e.g. from
+            max_affordable_price). If given, the result says how far over or under it is,
+            so the model never subtracts the numbers itself.
 
     Returns a dict with each monthly component, the total, and the assumptions used.
     """
     _check_range("price", price, 1, 50_000_000)
+    if monthly_budget is not None:
+        _check_range("monthly_budget", monthly_budget, 0, 1_000_000)
+    if (down_payment_pct is None) == (down_payment_usd is None):
+        raise ValueError("Give exactly one of down_payment_pct or down_payment_usd")
+    if down_payment_usd is not None:
+        _check_range("down_payment_usd", down_payment_usd, 0, price)
+        down_payment_pct = down_payment_usd / price * 100
     _check_range("down_payment_pct", down_payment_pct, 0, 100)
     _check_range("annual_rate", annual_rate, 0, 25)
     _check_range("years", years, 1, 50)
@@ -76,9 +91,10 @@ def monthly_payment(
     pmi = loan * PMI_ANNUAL_RATE_PCT / 100 / 12 if down_payment_pct < 20 else 0.0
     total = pi + tax + insurance + hoa_monthly + pmi
 
-    return {
+    result = {
         "price": round(price, 2),
         "down_payment": round(down_payment, 2),
+        "down_payment_pct": round(down_payment_pct, 2),
         "loan_amount": round(loan, 2),
         "monthly": {
             "principal_and_interest": round(pi, 2),
@@ -97,6 +113,15 @@ def monthly_payment(
             "note": "Educational estimate, not financial advice. Excludes utilities, maintenance and closing costs.",
         },
     }
+    if monthly_budget is not None:
+        gap = round(total - monthly_budget, 2)
+        result["vs_budget"] = {
+            "monthly_budget": round(monthly_budget, 2),
+            "within_budget": gap <= 0,
+            "over_budget_by": max(gap, 0.0),
+            "under_budget_by": max(-gap, 0.0),
+        }
+    return result
 
 
 def max_affordable_price(
@@ -170,7 +195,10 @@ def max_affordable_price(
 
     down_pct = (d / price * 100) if price > 0 else 0.0
     breakdown = (
-        monthly_payment(price, min(down_pct, 100), annual_rate, years, property_tax_rate, hoa_monthly, insurance_annual)
+        monthly_payment(
+            price=price, annual_rate=annual_rate, down_payment_usd=min(d, price), years=years,
+            property_tax_rate=property_tax_rate, hoa_monthly=hoa_monthly, insurance_annual=insurance_annual,
+        )
         if price > 0 else None
     )
 
@@ -211,8 +239,18 @@ MONTHLY_PAYMENT_SCHEMA = {
             "type": "object",
             "properties": {
                 "price": {"type": "number", "description": "Home price in USD."},
-                "down_payment_pct": {"type": "number", "description": "Down payment in percent of price, e.g. 10 for 10%."},
                 "annual_rate": {"type": "number", "description": "Mortgage interest rate in percent, e.g. 6.5 for 6.5%."},
+                "down_payment_pct": {
+                    "type": "number",
+                    "description": "ONLY if the user literally stated a percent (e.g. '10% down' -> 10). "
+                                   "If they gave a dollar amount, leave this out and use down_payment_usd. "
+                                   "Never convert dollars to a percent yourself.",
+                },
+                "down_payment_usd": {
+                    "type": "number",
+                    "description": "Down payment in dollars when the user gave an amount (e.g. '25k saved' -> 25000). "
+                                   "Give exactly one of down_payment_pct or down_payment_usd.",
+                },
                 "years": {"type": "integer", "description": "Loan term in years. Default 30."},
                 "property_tax_rate": {
                     "type": "number",
@@ -220,8 +258,14 @@ MONTHLY_PAYMENT_SCHEMA = {
                 },
                 "hoa_monthly": {"type": "number", "description": "HOA dues per month in USD. Default 0."},
                 "insurance_annual": {"type": "number", "description": "Homeowners insurance per year in USD. Default 1800."},
+                "monthly_budget": {
+                    "type": "number",
+                    "description": "Pass this whenever a monthly housing budget appears anywhere in the conversation "
+                                   "(e.g. monthly_housing_budget from max_affordable_price). The result then says how "
+                                   "far over or under budget the home is, so you never subtract numbers yourself.",
+                },
             },
-            "required": ["price", "down_payment_pct", "annual_rate"],
+            "required": ["price", "annual_rate"],
         },
     },
 }

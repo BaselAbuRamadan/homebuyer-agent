@@ -30,7 +30,7 @@ def test_no_loan_means_no_payment():
 # ---------- monthly_payment ----------
 
 def test_itemised_breakdown_adds_up():
-    result = monthly_payment(400_000, 10, 6.5, property_tax_rate=2.0, hoa_monthly=50)
+    result = monthly_payment(price=400_000, down_payment_pct=10, annual_rate=6.5, property_tax_rate=2.0, hoa_monthly=50)
     m = result["monthly"]
     assert result["loan_amount"] == 360_000
     assert m["principal_and_interest"] == pytest.approx(2275.44, abs=0.01)
@@ -43,28 +43,71 @@ def test_itemised_breakdown_adds_up():
 
 
 def test_no_pmi_at_20_percent_down():
-    assert monthly_payment(400_000, 20, 6.5)["monthly"]["pmi"] == 0.0
+    assert monthly_payment(price=400_000, down_payment_pct=20, annual_rate=6.5)["monthly"]["pmi"] == 0.0
 
 
 def test_pmi_just_under_20_percent_down():
-    assert monthly_payment(400_000, 19.9, 6.5)["monthly"]["pmi"] > 0
+    assert monthly_payment(price=400_000, down_payment_pct=19.9, annual_rate=6.5)["monthly"]["pmi"] > 0
 
 
 def test_zero_percent_down_borrows_full_price_with_pmi():
-    result = monthly_payment(300_000, 0, 6.5)
+    result = monthly_payment(price=300_000, down_payment_pct=0, annual_rate=6.5)
     assert result["loan_amount"] == 300_000
     assert result["down_payment"] == 0
     assert result["monthly"]["pmi"] == pytest.approx(125.0)        # 300k * 0.5% / 12
 
 
 def test_full_cash_purchase_has_no_loan_costs():
-    m = monthly_payment(300_000, 100, 6.5)["monthly"]
+    m = monthly_payment(price=300_000, down_payment_pct=100, annual_rate=6.5)["monthly"]
     assert m["principal_and_interest"] == 0.0
     assert m["pmi"] == 0.0
 
 
+def test_down_payment_in_dollars_is_converted_by_python():
+    # $25k on a $316k home is 7.91%, worked out in Python, not by the model.
+    result = monthly_payment(price=316_000, annual_rate=6.5, down_payment_usd=25_000)
+    assert result["down_payment"] == 25_000
+    assert result["loan_amount"] == 291_000
+    assert result["down_payment_pct"] == pytest.approx(7.91, abs=0.01)
+    assert result["monthly"]["pmi"] > 0
+
+
+def test_dollars_and_percent_give_the_same_answer():
+    by_pct = monthly_payment(price=400_000, annual_rate=6.5, down_payment_pct=10)
+    by_usd = monthly_payment(price=400_000, annual_rate=6.5, down_payment_usd=40_000)
+    assert by_pct["monthly"] == by_usd["monthly"]
+
+
+@pytest.mark.parametrize("kwargs", [
+    {},                                                  # neither given
+    {"down_payment_pct": 10, "down_payment_usd": 40_000},  # both given
+    {"down_payment_usd": 500_000},                       # more than the price
+])
+def test_down_payment_must_be_given_exactly_once_and_sensibly(kwargs):
+    with pytest.raises(ValueError):
+        monthly_payment(price=400_000, annual_rate=6.5, **kwargs)
+
+
+def test_over_budget_gap_is_worked_out_by_python():
+    result = monthly_payment(price=316_000, annual_rate=6.5, down_payment_usd=25_000,
+                             property_tax_rate=2.2, hoa_monthly=45, monthly_budget=1633.33)
+    vs = result["vs_budget"]
+    assert vs["within_budget"] is False
+    assert vs["over_budget_by"] == pytest.approx(result["monthly"]["total"] - 1633.33, abs=0.01)
+    assert vs["under_budget_by"] == 0
+
+
+def test_under_budget_is_reported():
+    vs = monthly_payment(price=200_000, annual_rate=6.5, down_payment_pct=20, monthly_budget=3000)["vs_budget"]
+    assert vs["within_budget"] is True and vs["under_budget_by"] > 0 and vs["over_budget_by"] == 0
+
+
+def test_no_budget_means_no_comparison():
+    assert "vs_budget" not in monthly_payment(price=200_000, annual_rate=6.5, down_payment_pct=20)
+
+
 def test_assumptions_are_reported():
-    assumptions = monthly_payment(400_000, 10, 6.5)["assumptions"]
+    assumptions = monthly_payment(price=400_000, down_payment_pct=10, annual_rate=6.5)["assumptions"]
     assert assumptions["annual_rate_pct"] == 6.5
     assert assumptions["insurance_annual"] == 1800
     assert "not financial advice" in assumptions["note"]

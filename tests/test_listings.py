@@ -59,6 +59,28 @@ def test_no_results_is_empty_not_an_error():
     assert result["listings"] == []
 
 
+def test_over_budget_search_suggests_closest_homes():
+    # No 3-bed in Austin under 305k, so suggest the cheapest Austin 3-beds instead.
+    result = search_listings(metro="Austin", min_beds=3, max_price=305_000)
+    assert result["listings"] == []
+    closest = result["closest_above_budget"]
+    assert 1 <= len(closest) <= 2
+    for home in closest:
+        assert home["metro"] == "Austin, TX" and home["beds"] >= 3        # other filters still apply
+        assert home["over_budget_by_usd"] == home["price_usd"] - 305_000  # gap worked out in Python
+    assert closest[0]["price_usd"] <= closest[-1]["price_usd"]           # closest first
+
+
+def test_no_suggestions_when_budget_was_not_the_problem():
+    result = search_listings(city="Glasgow", max_price=300_000)
+    assert result["total_matches"] == 0
+    assert "closest_above_budget" not in result
+
+
+def test_no_suggestions_when_homes_fit_the_budget():
+    assert "closest_above_budget" not in search_listings(metro="Austin", max_price=500_000)
+
+
 def test_unknown_city_gives_no_results():
     assert search_listings(city="Glasgow")["total_matches"] == 0
 

@@ -48,8 +48,16 @@ def load_prompt(version: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def route(message: str, prompt_version: str = DEFAULT_PROMPT_VERSION) -> RouterDecision:
+def route(
+    message: str,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
+    history: list[dict] | None = None,
+) -> RouterDecision:
     """Classify one user message and return the router's decision.
+
+    history (optional): earlier conversation turns. Short replies like "yes" or
+    "the second one" only make sense in context, so the router sees the recent
+    turns, but it classifies the LATEST message.
 
     The work happens inside a custom "route" span. In Phoenix it shows the message,
     the decision and labels for prompt version, intent and confidence. The OpenAI
@@ -59,8 +67,16 @@ def route(message: str, prompt_version: str = DEFAULT_PROMPT_VERSION) -> RouterD
         span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, OpenInferenceSpanKindValues.CHAIN.value)
         span.set_attribute(SpanAttributes.INPUT_VALUE, message)
         span.set_attribute("router.prompt_version", prompt_version)
+        span.set_attribute("router.history_turns", len(history or []))
 
-        decision = structured_completion(load_prompt(prompt_version), message, RouterDecision)
+        system_prompt = load_prompt(prompt_version)
+        if history:
+            system_prompt += (
+                "\n\nEarlier turns of this conversation are included for context. "
+                "Classify the user's LATEST message, using the earlier turns to understand "
+                "short replies like 'yes', 'the first one' or 'what about Dallas?'."
+            )
+        decision = structured_completion(system_prompt, message, RouterDecision, history=history)
 
         span.set_attribute("router.intent", decision.intent.value)
         span.set_attribute("router.confidence", decision.confidence)

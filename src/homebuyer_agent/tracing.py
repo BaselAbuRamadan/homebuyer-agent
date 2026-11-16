@@ -11,8 +11,11 @@ span in the code is a cheap "no-op", so tracing is entirely optional.
 """
 import os
 import urllib.request
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from openinference.instrumentation.openai import OpenAIInstrumentor
+from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace
 from phoenix.otel import register
 
@@ -22,6 +25,25 @@ PROJECT_NAME = "homebuyer-agent"
 def get_tracer() -> trace.Tracer:
     """Return the tracer our own code uses to create custom spans (route, eval_case, ...)."""
     return trace.get_tracer("homebuyer_agent")
+
+
+@contextmanager
+def traced_step(name: str, kind: str, input_value: str | None = None) -> Iterator[trace.Span]:
+    """Shortcut for one custom span: `with traced_step("retrieve", "RETRIEVER", query) as span:`.
+
+    kind is the OpenInference span kind Phoenix uses for the icon/colour:
+    CHAIN (a step of our own logic), RETRIEVER (search), TOOL (a tool call), AGENT (the whole run).
+    """
+    with get_tracer().start_as_current_span(name) as span:
+        span.set_attribute(SpanAttributes.OPENINFERENCE_SPAN_KIND, kind)
+        if input_value is not None:
+            span.set_attribute(SpanAttributes.INPUT_VALUE, input_value)
+        yield span
+
+
+def set_output(span: trace.Span, value: str) -> None:
+    """Record what a step produced, shown as 'Output' in Phoenix."""
+    span.set_attribute(SpanAttributes.OUTPUT_VALUE, value)
 
 
 def setup_tracing() -> None:

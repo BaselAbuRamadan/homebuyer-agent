@@ -104,7 +104,9 @@ Every run is traced in **Arize Phoenix**: route → retrieve → plan → tool c
 
 ![Phoenix trace of a prompt injection](assets/phoenix_trace.png)
 
-<!-- TODO (M5): add a screenshot of the full V2 trace tree: route → retrieve → plan → tools → answer -->
+**The full V2 agent, step by step:** one question ("I earn 95k… what can I afford, 3-beds in Austin?") becomes this tree. The router picks the intent, BM25 retrieves guides, the model writes a plan, then it calls `max_affordable_price` and feeds that result into `search_listings`, and finally a fair-housing check runs on the answer. Each step shows its inputs, outputs and timing.
+
+![Phoenix trace of the V2 planning agent](assets/phoenix_agent_trace.png)
 
 ## Product thinking
 

@@ -8,6 +8,7 @@ from functools import lru_cache
 from homebuyer_agent.config import LISTINGS_PATH
 
 VALID_STATUSES = {"move_in_ready", "under_construction", "to_be_built"}
+CLOSEST_ALTERNATIVES = 2   # how many over-budget homes to suggest when nothing fits the budget
 
 
 @lru_cache(maxsize=1)
@@ -15,6 +16,15 @@ def load_listings() -> tuple[dict, ...]:
     """Read the listings file once and keep it in memory (a tuple so it can't be changed by accident)."""
     data = json.loads(LISTINGS_PATH.read_text(encoding="utf-8"))
     return tuple(data["listings"])
+
+
+def _for_output(listing: dict) -> dict:
+    """Copy a listing and add the tax rate in percent (0.021 -> 2.1).
+
+    monthly_payment() takes percent, so the model can pass this value straight
+    through instead of converting it itself (no arithmetic by the model).
+    """
+    return {**listing, "est_property_tax_rate_pct": round(listing["est_property_tax_rate"] * 100, 3)}
 
 
 def _contains(text: str | None, query: str) -> bool:
@@ -45,20 +55,22 @@ def search_listings(
         limit: maximum number of results (1-20).
 
     Returns {"total_matches", "returned", "listings": [...], "note"}. No matches is not an
-    error: it returns an empty list so the agent can say so honestly.
+    error: it returns an empty list so the agent can say so honestly. If nothing fits
+    max_price, it also returns "closest_above_budget": the cheapest homes that match all
+    the OTHER filters, each with "over_budget_by_usd".
     """
     if status is not None and status not in VALID_STATUSES:
         raise ValueError(f"status must be one of {sorted(VALID_STATUSES)}, got {status!r}")
     if not 1 <= limit <= 20:
         raise ValueError(f"limit must be between 1 and 20, got {limit}")
 
-    matches = []
+    # Everything except the price filter. Kept separate so that, if nothing fits the
+    # budget, we can still suggest the closest homes that match the rest.
+    candidates = []
     for listing in load_listings():
         if metro and not _contains(listing["metro"], metro):
             continue
         if city and not _contains(listing["city"], city):
-            continue
-        if max_price is not None and listing["price_usd"] > max_price:
             continue
         if min_beds is not None and listing["beds"] < min_beds:
             continue
@@ -68,15 +80,26 @@ def search_listings(
             continue
         if incentive_keyword and not _contains(listing["builder_incentive"], incentive_keyword):
             continue
-        matches.append(listing)
+        candidates.append(listing)
 
-    matches.sort(key=lambda l: l["price_usd"])
-    return {
+    candidates.sort(key=lambda l: l["price_usd"])
+    matches = [l for l in candidates if max_price is None or l["price_usd"] <= max_price]
+
+    result = {
         "total_matches": len(matches),
         "returned": min(len(matches), limit),
-        "listings": [dict(l) for l in matches[:limit]],
+        "listings": [_for_output(l) for l in matches[:limit]],
         "note": "Fictional sample listings for a demo, not real homes.",
     }
+    if not matches and max_price is not None and candidates:
+        # Nothing within budget: offer the cheapest homes that match everything else,
+        # with the gap worked out here so the model never does that arithmetic.
+        result["closest_above_budget"] = [
+            {**_for_output(l), "over_budget_by_usd": round(l["price_usd"] - max_price, 2)}
+            for l in candidates[:CLOSEST_ALTERNATIVES]
+        ]
+        result["note"] += " No home matched the max price; closest_above_budget lists the cheapest homes matching the other filters."
+    return result
 
 
 def get_listing(listing_id: str) -> dict:
@@ -84,7 +107,7 @@ def get_listing(listing_id: str) -> dict:
     wanted = listing_id.strip().upper()
     for listing in load_listings():
         if listing["id"] == wanted:
-            return {**listing, "note": "Fictional sample listing for a demo, not a real home."}
+            return {**_for_output(listing), "note": "Fictional sample listing for a demo, not a real home."}
     raise ValueError(f"No listing with id {listing_id!r}")
 
 
