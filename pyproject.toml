@@ -18,3 +18,9 @@ homebuyer_agent = ["prompts/*.txt"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+# Hide deprecation notices from third-party libraries we don't control.
+# Warnings from our own code still show.
+filterwarnings = [
+    "ignore::DeprecationWarning:ldap3.*",
+    "ignore::DeprecationWarning:beartype.*",
+]
