@@ -53,6 +53,18 @@ flowchart LR
 - **V1, action autonomy.** The model picks one of six intents through structured output (Pydantic).
 - **V2, planning autonomy.** The model retrieves guidance, writes a plan, calls tools in a bounded loop (max 6 steps) and writes an answer grounded in what it retrieved. The tools do all the arithmetic, so the model never calculates a mortgage payment itself.
 
+### The tools
+The model decides *which* tool to call and with what inputs, but plain Python does the maths, so the same question always gives the same number and every tool is covered by unit tests.
+
+| Tool | Question it answers | You give it | You get back | Example |
+|---|---|---|---|---|
+| `monthly_payment` | "What will this house cost me each month?" | price, down payment ($ or %), rate, optional tax rate / HOA / monthly budget | itemised monthly cost: loan + interest, tax, insurance, HOA, PMI, and over/under budget if a budget is given | $400k, 10% down, 6.5% → **$2,942/month** |
+| `max_affordable_price` | "How expensive a house can I afford?" | yearly income, monthly debts, savings, rate | highest price, using the stricter of the **28% housing** and **36% total-debt** rules | $95k income, $400 debts, $40k saved → **$305,000** (28% rule applies) |
+| `search_listings` | "What's available?" | metro/city, max price, beds, status, features, incentives | matching homes; if none fit the budget, the closest ones above it and by how much | |
+| `get_listing` | "Tell me about this home" | a listing id | full details for that home | |
+
+**Same maths, opposite directions:** `monthly_payment` starts from a **price** and ends with a **monthly cost**, while `max_affordable_price` starts from **my income** and ends with a **price**. I kept them as two simple tools rather than one combined calculator, because simpler inputs mean fewer wrong calls from the model. The V2 eval counts both as "affordability calculator".
+
 ## Evaluation (the part I care most about)
 
 I didn't want a demo that only *looks* good, so every change was measured against labelled test sets.

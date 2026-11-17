@@ -29,6 +29,7 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 ## M4: Tools
 - **Built:** four plain-Python tools: `monthly_payment` (itemised cost: loan + interest, tax, insurance, HOA, PMI), `max_affordable_price` (28% housing / 36% total-debt rules), `search_listings` and `get_listing`. Each has a JSON schema, the "menu" the model will read in M5. 40 pytest tests, no API calls.
 - **What clicked:** the model should *decide* what to calculate, but Python should *do* the maths. Then the same question always gives the same number, and it can be tested. The amortisation formula finds the one fixed monthly payment that clears the loan in exactly 360 payments. Early payments are mostly interest.
+- **Same maths, opposite directions:** `monthly_payment` goes from a house price to a monthly cost ("what will this home cost me?"). `max_affordable_price` goes from my income, debts and savings to a price ("how much house can I afford?"), using whichever of the 28% / 36% rules is stricter. It even calls `monthly_payment` to check its own answer.
 - **Checked by hand:** $360k at 6.5% for 30 years = $2,275.44/month, the same as an online calculator. I also tried my own numbers in the terminal.
 - **Decisions I made:** two separate affordability tools rather than one combined tool, because simpler inputs mean fewer wrong calls from the model. The V2 eval will count both as "affordability_calculator". Rates are in percent (6.5, not 0.065), and typos like 65% give an error instead of a silly answer.
 
