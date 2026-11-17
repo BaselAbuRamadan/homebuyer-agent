@@ -2,22 +2,23 @@
 
 **An evaluated, traced AI agent that helps people buying new-construction homes search listings, understand affordability and work through the buying process, while following US fair-housing rules.**
 
-Built by **Basel Aburamadan** (MSc Computing Science, University of Glasgow) to learn agentic AI development end to end, building on the LinkedIn Learning course *Agentic AI: Build Your First Agentic AI System*.
+Designed and implemented end to end by **Basel Aburamadan** (MSc Computing Science, University of Glasgow): intent routing, a planning agent with tools and retrieval, evaluation with an AI judge, tracing, and a public deployment.
 
-<!-- TODO after deploying: add a line here such as
-**[▶ Try the live demo](https://YOUR-APP.streamlit.app)** -->
+**[▶ Try the live demo](https://basel-housing-homebuyer-agent.streamlit.app/)**
 
-<!-- TODO: record a short GIF of the app, save it as assets/demo.gif, then replace this comment with:
-![Demo](assets/demo.gif) -->
+[![Demo of Your Housing Chatbot](assets/demo.gif)](https://basel-housing-homebuyer-agent.streamlit.app/)
+<!-- Placeholder animation. To show a real recording, save it over assets/demo.gif (same name); no README change needed. -->
+
 
 ---
 
 ## Why I built this
 
-<!-- TODO: write this in your own words, 3-5 sentences. Suggested angle:
-- you want to work as an AI product owner, so you wanted to understand agents from the inside rather than only on slides
-- why homebuying: a high-stakes, confusing purchase where people now expect a conversation rather than filters
-- what you wanted to prove to yourself: that you could ship something measurable, not just a demo -->
+I built this project to demonstrate two things: that I can **own an AI product** from problem definition to launch, and that I can **build agentic systems hands-on**, not just describe them.
+
+As a product owner, I defined the users and the scope. I set the success measures before writing features and made the trade-offs: accuracy versus cost, helpfulness versus legal risk, automation versus human hand-off. As an engineer, I built the agent loop by hand with the OpenAI SDK, without agent frameworks, so every decision the system makes can be traced, tested and explained.
+
+I chose homebuying because it's a high-stakes, regulated purchase. People need clear numbers, honest limits and fair treatment. That makes it a demanding test of whether an AI product can be useful **and** trustworthy. The result is a deployed, evaluated product, with the evidence for each decision recorded in this repository.
 
 ## What it does
 
@@ -53,7 +54,7 @@ flowchart LR
 
 Every step is traced in Arize Phoenix when tracing is on (evals and scripts, not the public app).
 
-**Two levels of autonomy (following the course):**
+**Two levels of autonomy:**
 - **V1, action autonomy.** The model picks one of six intents through structured output (Pydantic).
 - **V2, planning autonomy.** The model retrieves guidance, writes a plan, calls tools in a bounded loop (max 6 rounds) and writes an answer grounded in what it retrieved. The tools do all the arithmetic, so the model never calculates a mortgage payment itself.
 
@@ -204,15 +205,62 @@ Every run is traced in **Arize Phoenix**: route → retrieve → plan → tool c
 
 ## Product thinking
 
-<!-- TODO: your own words. This section is what makes the project yours. Ideas to cover:
-- Who is the user? (first-time buyers comparing new-build communities)
-- What would success look like in production? (e.g. qualified leads handed to sales teams, fewer drop-offs, accuracy of affordability answers)
-- Risks you designed for: fair housing / steering, made-up numbers, overpromising (pretending to book tours), giving financial advice
-- What you'd measure next and what you'd build next -->
+**The user:** first-time and early-stage buyers comparing new-construction homes. They want to know what they can afford, what's available, and how buying from a builder works, without feeling pushed into a sales conversation too early.
+
+**Where it could be used:**
+- **Homebuilder websites:** a 24/7 assistant that answers buyer questions, matches people to homes in their budget, and hands qualified buyers to the sales team with context.
+- **Mortgage lenders and brokers:** an education and pre-qualification front door that explains affordability, down payments and buydowns before a loan officer gets involved.
+- **Real-estate portals and agencies:** a conversational search layer on top of existing listings, with the same tool-based design.
+- **Internal sales enablement:** a consistent, compliant first answer for sales teams handling repetitive questions.
+
+**Key product decisions I made:**
+
+| Decision | Why |
+|---|---|
+| **Python does all the maths; the AI only decides what to calculate** | Financial figures must be exact and repeatable. A model that "estimates" a mortgage payment is a liability. |
+| **Fair housing: when unsure, flag it** | A wrongly flagged question costs the user a rephrase. Missing real steering is a legal and ethical failure. The *reason* for avoiding an area decides the label: cost, flood risk and commute are fine; who lives there is not. |
+| **Offers and tour bookings always go to a human, and the assistant never claims to have booked anything** | Over-promising destroys trust, and these are the moments where a sales team adds value. |
+| **When nothing fits the budget, suggest the closest homes, labelled "slightly" (up to $30k) or "well" above budget** | "Nothing found" is a dead end. Honest, clearly labelled alternatives keep the buyer engaged without misleading them. |
+| **Explanation questions get an explanation first, not just listings** | Buyers asking "how does this work?" need understanding before options. Listing homes alone answered the wrong question. |
+| **gpt-4o-mini by default, gpt-4o only when a question needs it** | Measured, not assumed: the cheaper model matched quality on everyday questions. Paying for the stronger model only on multi-step questions improved speed and efficiency at a controlled cost. |
+| **Cost and abuse limits from day one** | Per-visitor limits, a shared daily cap and an account budget make a public demo safe to run on a personal API key. |
+| **Transparency in the product** | "Under the hood" shows the intent, plan, tools, model and sources behind every answer, so users and stakeholders can see *why* the assistant said what it said. |
+| **One clear disclosure instead of repeated warnings** | The sample-data notice sits once in the sidebar, which keeps answers clean while staying honest. |
+| **Evaluation before features** | Every change was measured against labelled test sets, and the AI judge was checked against my own scoring before I trusted it. |
+
+**How I'd measure success in production:**
+- Answer accuracy on a growing test set
+- Hand-off rate to sales, and conversion from those hand-offs
+- How many conversations end with a home or a clear next step
+- Fair-housing flags reviewed by a person
+- Cost per conversation
+
+**What I'd build next:**
+- Connect to a real listings feed and a builder's CRM for hand-offs
+- Grow the evaluation set from real (anonymised) conversations
+- Add semantic search alongside keyword search
+- Collect user feedback on each answer to drive the next improvement cycle
 
 ## How I built it: an agentic coding workflow
 
 I built this in VS Code with **Claude Code** as a pair programmer. A `CLAUDE.md` file gives the assistant a standing brief: no agent frameworks, explain before writing, deterministic tools, versioned prompts, fair-housing rules. I worked in eight milestones ([docs/BUILD_PLAN.md](docs/BUILD_PLAN.md)). The assistant wrote most of the code, and I made the decisions: the intent taxonomy, the extra test cases, the error analysis, which prompt changes to try, and the judge rubric. I kept a short learning log after each milestone ([docs/LEARNING_LOG.md](docs/LEARNING_LOG.md)).
+
+## The journey: what broke, and what I learned from it
+
+Each stage followed the same loop: build it, measure it, read the failures, fix the cause, then measure again.
+
+| Stage | What went wrong | How I found it | What I changed | Lesson |
+|---|---|---|---|---|
+| **1. Router** | The model said it was 90% confident on every message, *including the one it got wrong*. | A 6-message demo | Stopped treating self-reported confidence as a safety signal | Only an eval tells you whether a model is right. |
+| **2. Router eval** | Prompt v2 fixed the two cases I targeted but broke two others. v3 then over-flagged a tax question as fair housing. | 50 labelled messages, repeat runs, a 15-message held-out set | Label by *what should happen next*. For fair housing, the *reason* someone avoids an area decides the label. 94% → 100%, held-out 67% → 100%. | A fix can break cases you weren't looking at. Rerun everything, every time. |
+| **3. Tracing** | A green "OK" in Phoenix only meant the API call worked. A prompt injection had fooled the router. | Opening the trace and reading the exact messages | Labelled every eval trace with `correct = true/false` | A CSV tells you *that* something failed. A trace tells you *why*. |
+| **4. Tools** | Asked for a monthly cost, the model turned "$25k saved" into the wrong percentage ($37,604 down). | Testing it myself in the terminal | The tool accepts dollars directly. All maths lives in Python. | Whenever a tool's inputs don't match how people talk, the model fills the gap with arithmetic, and gets it wrong. |
+| **5. Agent** | Replying "yes" to a follow-up was treated as off-topic. Search ranked the wrong guide because of the word "much". A guardrail missed "young families". | Chatting with it, and unit tests | Short-term memory (last 6 messages), stopword fixes, guardrail patterns | Unit tests catch the boring bugs, so I could focus on the interesting ones. |
+| **6. AI judge** | The first judge agreed with me only 50% of the time. It said answers covered points they never mentioned, and later quoted text that wasn't in the answer. | Scoring 5 answers myself *before* seeing the judge's scores | Judge must quote the answer for every point, Python checks those quotes, a stronger judge model. Agreement: 50% → 70% exact, 95% within 1 point. | You have to evaluate the evaluator. And sometimes the judge was right and I was wrong. |
+| **6. Agent fixes** | It called a home $72,000 over budget "slightly above". It answered "explain how buydowns work" with only a list of homes. It forgot the data disclaimer in 4 of 10 answers. | Judge scores, then reading the answers | "Slightly / well above budget" decided in Python ($30k line). An "explain first" reminder placed where the model reads it last. Required notes added in code. | **A rule that must always hold belongs in code, not in a prompt.** |
+| **7. Smarter model** | gpt-4o was *not* clearly better than gpt-4o-mini. It searched without the user's budget, and once threw away its own 2,700-character explanation. | A three-way comparison, then reading every answer | Python now applies the budget and keeps text written next to tool calls. gpt-4o is used **only when needed** (multi-step questions or a failed check): same quality, faster, fewer tool calls. | A stronger model can expose holes in your code that a cheaper one happened not to hit. |
+| **7. Retrieval** | "I earn 95k with debts" scored zero against the guide about "income and debt". A question about costs never reached the closing-costs guide. | A new 26-question retrieval test | Plural handling plus a small list of everyday-word matches: 24/26 → 26/26. The missing "closing costs 2–5%" appeared in answers. | What looked like a model failure was a search failure. |
+| **7. Going live** | Only 32 homes, so many searches found nothing. The deploy file allowed versions missing features the app needs. | 151 test searches, and a fresh install in a clean environment | 160 homes (generated reproducibly from the same rules), pinned requirements, daily cost limits, real end-to-end questions through the website | Test the deployment the way the host will run it. |
 
 ## Run it yourself
 
@@ -262,4 +310,8 @@ Python · OpenAI API (structured outputs, function calling) · Pydantic · BM25 
 - The AI judge is gpt-4o, and on multi-step questions the agent also answers with gpt-4o, so the judge partly grades its own writing. My hand scores are the check on that.
 
 ## What I learned
-<!-- TODO: 3-5 honest sentences in your own voice. -->
+- **An agent is just a loop.** The model chooses the next step, and Python runs the tools, enforces the limits and checks the safety rules. Building it by hand, without a framework, means I can explain every step.
+- **Measure before changing anything, and read the answers behind the numbers.** Several "improvements" broke other cases, and several low scores turned out to be the judge's mistakes. Neither showed up until I looked.
+- **Put guarantees in code.** Arithmetic, budget wording, required caveats and fair-housing checks all became reliable once Python enforced them, whichever model was answering.
+- **Choose the model for the job, not the biggest one.** The cheap model handles everyday questions as well as the expensive one. Paying for the stronger model only when a question needs it gave the best mix of quality, speed and cost.
+- **Shipping is part of the work.** Cost limits, friendly errors, a clean install and a README a stranger can follow took real time, and they're what turn a demo into something people can use.
