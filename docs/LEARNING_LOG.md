@@ -42,7 +42,18 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **Bug found by testing it myself:** after "yes", the agent used a $37,604 down payment although I'd said $25k saved. The tool only took a *percent*, so the model converted dollars to percent itself and got it wrong. Fix: the tool also accepts `down_payment_usd`, and the rule sits in the tool's own description, where the model reads it at call time (moving it there took it from inconsistent to 3/3 correct). Lesson: any time a tool's inputs don't match how users talk, the model fills the gap with arithmetic.
 
 ## M6: V2 evaluation and LLM-as-judge
-- Judge vs me agreement:
+- **Built:** `run_v2_eval.py` scores each of the 10 scenarios three ways: tools chosen (precision/recall, with both affordability tools counting as "affordability_calculator"), retrieval hit, and an AI judge giving 1–5 scores with reasons. `score_by_hand.py` hides the judge's scores until I've typed mine, so they can't sway me.
+- **Judge vs me agreement:** v1 judge 50% exact, 85% within 1 point. Final v3 judge (gpt-4o) 70% exact, 95% within 1. The first judge said A02 "covered temporary vs permanent buydowns" when the answer never explained them. It was ticking boxes without checking.
+- **How I fixed the judge:** make it quote the answer for every checklist point, or write MISSING. Check those quotes in Python (gpt-4o-mini copied text from the *guide* and passed it off as the answer). Use a stronger judge model. Tell it never to recalculate numbers (gpt-4o "found" a 1-cent error by adding up the items itself). I re-graded the *same saved answers* each time, so any change came from the judge, not the agent.
+- **What clicked:** you have to evaluate the evaluator. A judge is a model with its own blind spots. And a disagreement isn't always the judge's fault: it caught that A03 never mentioned closing costs, which I'd missed.
+- **Improvement round (agent_v1 → v2):** judge scores went up on every criterion (safety 4.7 → 5.0, helpfulness 4.4 → 4.9). Three of the four fixes ended up in code, not the prompt:
+  - "slightly / well above budget" is decided in Python, with $30k as the line, which I chose
+  - the "fictional" note is added by Python
+  - the "explain first" reminder is placed as the last thing the model reads
+  - the "check the feature with the builder" fallback is in the search tool
+  
+  A prompt rule alone ("explain first") didn't work, even with the planner writing it down.
+- **Decisions I made:** anything $30k or less over budget is "slightly"; "explain" questions must be explained, not just answered with listings; I score first and see the judge second.
 
 ## M7: Demo and README
 -

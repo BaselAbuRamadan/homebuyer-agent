@@ -2,7 +2,7 @@
 import pytest
 
 from homebuyer_agent.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
-from homebuyer_agent.tools.listings import get_listing, load_listings, search_listings
+from homebuyer_agent.tools.listings import budget_label, get_listing, load_listings, search_listings
 
 
 # ---------- search_listings ----------
@@ -69,6 +69,34 @@ def test_over_budget_search_suggests_closest_homes():
         assert home["metro"] == "Austin, TX" and home["beds"] >= 3        # other filters still apply
         assert home["over_budget_by_usd"] == home["price_usd"] - 305_000  # gap worked out in Python
     assert closest[0]["price_usd"] <= closest[-1]["price_usd"]           # closest first
+
+
+def test_budget_label_says_slightly_only_up_to_30k():
+    assert budget_label(30_000) == "slightly above budget"
+    assert budget_label(30_001) == "well above budget"
+    assert budget_label(72_000) == "well above budget"
+
+
+def test_closest_homes_carry_a_budget_label():
+    # A01's case: L001 is $72,000 over a $305k budget, so it must NOT be "slightly" above.
+    closest = search_listings(metro="Austin", min_beds=3, max_price=305_000)["closest_above_budget"]
+    assert closest[0]["over_budget_by_usd"] == 72_000
+    assert closest[0]["budget_label"] == "well above budget"
+    near = search_listings(metro="Austin", min_beds=3, max_price=360_000)["closest_above_budget"]
+    assert near[0]["budget_label"] == "slightly above budget"          # $17,000 over
+
+
+def test_missing_feature_still_offers_homes_matching_the_rest():
+    # A07's case: no listing records "step-free entry", but homes under 400k exist.
+    result = search_listings(max_price=400_000, features=["step-free entry"])
+    assert result["listings"] == []
+    others = result["matches_without_requested_features"]
+    assert others and all(l["price_usd"] <= 400_000 for l in others)   # price filter still applies
+    assert "builder" in result["note"]
+
+
+def test_no_feature_fallback_when_feature_matches():
+    assert "matches_without_requested_features" not in search_listings(features=["pool"])
 
 
 def test_no_suggestions_when_budget_was_not_the_problem():

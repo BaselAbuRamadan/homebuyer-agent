@@ -32,7 +32,7 @@ MAX_ITERATIONS = 6          # most rounds of tool calls before we force an answe
 RETRIEVAL_K = 3             # how many knowledge-base chunks to retrieve
 MAX_HISTORY_MESSAGES = 6    # last 3 exchanges (user + assistant) kept as conversation memory
 PLANNER_PROMPT = "planner_v1"
-AGENT_PROMPT = "agent_v1"
+AGENT_PROMPT = "agent_v2"   # v2 won the M6 eval; v1 is kept for comparison
 
 ToolName = Literal["max_affordable_price", "monthly_payment", "search_listings", "get_listing"]
 
@@ -48,6 +48,13 @@ class Plan(BaseModel):
     """Structured output of the planning step."""
 
     goal: str = Field(description="What the user wants, in one sentence.")
+    explain_first: str = Field(
+        description=(
+            "If the user asks to explain, describe or understand how something works (e.g. 'explain how "
+            "buydowns work', 'walk me through the steps'), name that topic here, including the main types "
+            "or options to cover. Otherwise an empty string."
+        )
+    )
     steps: list[PlanStep] = Field(description="Tool calls in order. Empty if no tools are needed.")
 
 
@@ -91,10 +98,39 @@ def _format_guidance(chunks: list[RetrievedChunk]) -> str:
 
 
 def _format_plan(plan: Plan) -> str:
+    lines = [f"Goal: {plan.goal}"]
+    if plan.explain_first:
+        lines.append(f"FIRST explain, in plain words from the guidance: {plan.explain_first}. "
+                     "Do this before any listings or numbers.")
     if not plan.steps:
-        return f"Goal: {plan.goal}\n(No tools needed: answer from the guidance.)"
-    lines = [f"Goal: {plan.goal}"] + [f"{i}. {s.tool}: {s.reason}" for i, s in enumerate(plan.steps, 1)]
+        lines.append("(No tools needed: answer from the guidance.)")
+    lines += [f"{i}. {s.tool}: {s.reason}" for i, s in enumerate(plan.steps, 1)]
     return "\n".join(lines)
+
+
+def explain_reminder(topic: str) -> str:
+    return (f"Reminder: the user asked for an explanation. Start your answer by explaining {topic} "
+            "in plain words from the guidance (with its [kb_00X] citation), and only then give the tool results.")
+
+
+FICTIONAL_NOTE ="_Note: listings shown are fictional sample data for a demo, not real homes._"
+ESTIMATE_NOTE = "_Note: figures are educational estimates, not financial advice._"
+MONEY_TOOLS = {"monthly_payment", "max_affordable_price"}
+
+
+def add_required_notes(answer: str, listing_ids: list[str], tool_names: list[str]) -> str:
+    """Make sure the two required caveats are there, added by Python if the model forgot.
+
+    The prompt asks for them, but the M6 eval showed the model often leaves out
+    "fictional" (4 of 10 answers). Like the arithmetic, a rule that must ALWAYS hold
+    is safer in code than in a prompt.
+    """
+    notes = []
+    if listing_ids and "fictional" not in answer.lower():
+        notes.append(FICTIONAL_NOTE)
+    if MONEY_TOOLS & set(tool_names) and "financial advice" not in answer.lower():
+        notes.append(ESTIMATE_NOTE)
+    return answer + "".join(f"\n\n{n}" for n in notes)
 
 
 def _listing_ids_in(text: str) -> list[str]:
@@ -130,24 +166,26 @@ def run_tool(name: str, arguments_json: str) -> ToolCallRecord:
 
 # ---------- the agent ----------
 
-def run_agent(message: str, history: list[dict] | None = None) -> AgentResult:
+def run_agent(message: str, history: list[dict] | None = None, agent_prompt: str = AGENT_PROMPT) -> AgentResult:
     """Answer one homebuyer message. See the module docstring for the steps.
 
     history (optional): earlier turns as [{"role": "user"/"assistant", "content": "..."}],
     oldest first. It lets the agent understand follow-ups like "yes" or "what about L030?".
     Only the last MAX_HISTORY_MESSAGES are used, to keep prompts short.
+    agent_prompt: which prompts/agent_vN.txt to use (the eval compares versions).
     """
     history = (history or [])[-MAX_HISTORY_MESSAGES:]
     with traced_step("run_agent", "AGENT", message) as root:
         root.set_attribute("agent.history_turns", len(history))
-        result = _run(message, history)
+        root.set_attribute("agent.prompt_version", agent_prompt)
+        result = _run(message, history, agent_prompt)
         root.set_attribute("agent.intent", result.intent)
         root.set_attribute("agent.tools", ",".join(t.name for t in result.tool_calls))
         set_output(root, result.answer)
         return result
 
 
-def _run(message: str, history: list[dict]) -> AgentResult:
+def _run(message: str, history: list[dict], agent_prompt: str) -> AgentResult:
     # 1. ROUTE, plus a keyword safety net in case the router misses steering.
     decision = route(message, history=history)
     intent = decision.intent
@@ -184,7 +222,7 @@ def _run(message: str, history: list[dict]) -> AgentResult:
         set_output(span, plan.model_dump_json())
 
     # 4. ACT: let the model call tools in a loop until it has enough to answer.
-    system = _fill(load_prompt(AGENT_PROMPT), plan=_format_plan(plan), guidance=guidance)
+    system = _fill(load_prompt(agent_prompt), plan=_format_plan(plan), guidance=guidance)
     messages: list[dict] = [
         {"role": "system", "content": system},
         *history,                                  # earlier turns, so follow-ups make sense
@@ -214,6 +252,11 @@ def _run(message: str, history: list[dict]) -> AgentResult:
                 tool_calls.append(record)
                 payload = record.result if record.error is None else {"error": record.error}
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": json.dumps(payload, default=str)})
+            if plan.explain_first:
+                # The model pays most attention to what it read last. After a long block of
+                # listing results it forgot the "explain" part (M6 eval, case A02), so we
+                # repeat it here, right before it writes.
+                messages.append({"role": "system", "content": explain_reminder(plan.explain_first)})
         else:
             # Limit reached: no more tools allowed, the model must answer with what it has.
             hit_limit = True
@@ -226,6 +269,8 @@ def _run(message: str, history: list[dict]) -> AgentResult:
         if output_check.flagged:
             guardrail = f"fair_housing (answer check: '{output_check.matched}')"
             answer = FAIR_HOUSING_RESPONSE
+        else:
+            answer = add_required_notes(answer, _listing_ids_in(answer), [t.name for t in tool_calls])
         span.set_attribute("agent.guardrail", guardrail or "none")
         set_output(span, answer)
 

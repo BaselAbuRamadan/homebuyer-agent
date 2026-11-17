@@ -78,6 +78,12 @@ def _index() -> tuple[list[Chunk], BM25Okapi]:
     return chunks, BM25Okapi([tokenize(c.text) for c in chunks])
 
 
+def get_doc_text(doc_id: str) -> str:
+    """Full text of one guide (all its chunks), e.g. for the eval judge to read."""
+    chunks, _ = _index()
+    return "\n\n".join(c.text for c in chunks if c.doc_id == doc_id)
+
+
 def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     """Return the k chunks that best match the query, best first.
 

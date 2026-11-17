@@ -43,9 +43,9 @@ class ScriptedModel:
 @pytest.fixture
 def setup(monkeypatch):
     """Patch the model functions; returns a helper to configure each test."""
-    def configure(intent: Intent, replies=(), plan_steps=()):
+    def configure(intent: Intent, replies=(), plan_steps=(), explain_first=""):
         monkeypatch.setattr(planner, "route", fake_route(intent))
-        plan = planner.Plan(goal="test goal", steps=[planner.PlanStep(tool=t, reason="test") for t in plan_steps])
+        plan = planner.Plan(goal="test goal", explain_first=explain_first, steps=[planner.PlanStep(tool=t, reason="test") for t in plan_steps])
         monkeypatch.setattr(planner, "structured_completion", lambda *args, **kwargs: plan)
         model = ScriptedModel(replies)
         monkeypatch.setattr(planner, "chat_with_tools", model)
@@ -181,6 +181,57 @@ def test_only_recent_history_is_kept(setup):
     sent_history = model.calls[0]["messages"][1:-1]                  # between system and new message
     assert len(sent_history) == planner.MAX_HISTORY_MESSAGES
     assert sent_history[-1]["content"] == "turn 19"
+
+
+# ---------- caveats added by Python ----------
+
+def test_fictional_note_added_when_listings_named_without_it(setup):
+    setup(Intent.LISTING_SEARCH, replies=[reply(content="Try L014, it has a buydown.")])
+    answer = planner.run_agent("buydown homes?").answer
+    assert answer.endswith(planner.FICTIONAL_NOTE)
+
+
+def test_no_duplicate_note_when_model_already_said_it(setup):
+    setup(Intent.LISTING_SEARCH, replies=[reply(content="L014 (fictional sample data).")])
+    assert planner.FICTIONAL_NOTE not in planner.run_agent("buydown homes?").answer
+
+
+def test_estimate_note_added_after_money_tools():
+    answer = planner.add_required_notes("About $2,275 a month.", [], ["monthly_payment"])
+    assert answer.endswith(planner.ESTIMATE_NOTE)
+
+
+def test_no_notes_for_a_plain_explanation():
+    text = "A buydown lowers your rate for a while [kb_004]."
+    assert planner.add_required_notes(text, [], []) == text
+
+
+def test_explain_first_goes_into_the_agent_instructions():
+    plan = planner.Plan(goal="g", explain_first="how buydowns work (temporary vs permanent)", steps=[])
+    assert "FIRST explain" in planner._format_plan(plan) and "temporary vs permanent" in planner._format_plan(plan)
+
+
+def test_explain_reminder_is_the_last_thing_the_model_reads_after_tools(setup):
+    model = setup(
+        Intent.PROCESS_QUESTION,
+        replies=[
+            reply(tool_calls=[tool_call("c1", "search_listings", metro="Phoenix", incentive_keyword="buydown")]),
+            reply(content="A buydown lowers your rate [kb_004]. L014 and L015 offer one."),
+        ],
+        explain_first="how buydowns work",
+    )
+    planner.run_agent("Explain buydowns and any Phoenix listings with one")
+    last = model.calls[1]["messages"][-1]
+    assert last["role"] == "system" and "how buydowns work" in last["content"]
+
+
+def test_no_reminder_when_nothing_to_explain(setup):
+    model = setup(Intent.LISTING_SEARCH, replies=[
+        reply(tool_calls=[tool_call("c1", "search_listings", metro="Austin")]),
+        reply(content="L001 ..."),
+    ])
+    planner.run_agent("homes in Austin")
+    assert model.calls[1]["messages"][-1]["role"] == "tool"
 
 
 def test_answer_guardrail_replaces_unsafe_answer(setup):

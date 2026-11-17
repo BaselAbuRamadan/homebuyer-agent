@@ -28,3 +28,12 @@ def get_model() -> str:
     if not model:
         raise RuntimeError("OPENAI_MODEL is not set. Add it to your .env file (see .env.example).")
     return model
+
+
+def get_judge_model() -> str:
+    """Model used by the LLM-as-judge: JUDGE_MODEL if set, otherwise OPENAI_MODEL.
+
+    A different (ideally stronger) judge model reduces "self-preference": a model
+    tends to rate its own style of answer a little too kindly.
+    """
+    return os.getenv("JUDGE_MODEL") or get_model()

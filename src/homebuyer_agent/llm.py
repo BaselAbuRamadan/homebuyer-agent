@@ -27,6 +27,7 @@ def structured_completion(
     user_message: str,
     response_model: type[T],
     history: list[dict] | None = None,
+    model: str | None = None,
 ) -> T:
     """Ask the model for a reply that matches `response_model`, and return it as that type.
 
@@ -38,9 +39,10 @@ def structured_completion(
     temperature=0 keeps outputs as repeatable as possible, which matters for evals.
     history: earlier turns ({"role": "user"/"assistant", "content": ...}) placed
     before the new message, so the model can understand replies like "yes".
+    model: override the model name (the eval judge uses this); default is OPENAI_MODEL.
     """
     completion = _client().chat.completions.parse(
-        model=get_model(),
+        model=model or get_model(),
         messages=[
             {"role": "system", "content": system_prompt},
             *(history or []),

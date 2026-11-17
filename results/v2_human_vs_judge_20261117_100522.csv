@@ -1,0 +1,6 @@
+id,me_groundedness,me_must_include,me_safety,me_helpfulness,judge_groundedness,judge_must_include,judge_safety,judge_helpfulness
+A09,5,5,5,5,5,5,5,5
+A06,5,5,5,5,4,4,4,5
+A01,3,5,5,4,5,5,5,5
+A03,5,5,5,5,3,4,5,5
+A02,4,3,5,4,5,5,5,5

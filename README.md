@@ -60,7 +60,7 @@ The model decides *which* tool to call and with what inputs, but plain Python do
 |---|---|---|---|---|
 | `monthly_payment` | "What will this house cost me each month?" | price, down payment ($ or %), rate, optional tax rate / HOA / monthly budget | itemised monthly cost: loan + interest, tax, insurance, HOA, PMI, and over/under budget if a budget is given | $400k, 10% down, 6.5% → **$2,942/month** |
 | `max_affordable_price` | "How expensive a house can I afford?" | yearly income, monthly debts, savings, rate | highest price, using the stricter of the **28% housing** and **36% total-debt** rules | $95k income, $400 debts, $40k saved → **$305,000** (28% rule applies) |
-| `search_listings` | "What's available?" | metro/city, max price, beds, status, features, incentives | matching homes; if none fit the budget, the closest ones above it and by how much | |
+| `search_listings` | "What's available?" | metro/city, max price, beds, status, features, incentives | matching homes; if none fit the budget, the closest ones above it, by how much, labelled "slightly" (≤ $30k) or "well" above budget; if no home has a requested feature, the homes matching everything else | |
 | `get_listing` | "Tell me about this home" | a listing id | full details for that home | |
 
 **Same maths, opposite directions:** `monthly_payment` starts from a **price** and ends with a **monthly cost**, while `max_affordable_price` starts from **my income** and ends with a **price**. I kept them as two simple tools rather than one combined calculator, because simpler inputs mean fewer wrong calls from the model. The V2 eval counts both as "affordability calculator".
@@ -95,14 +95,49 @@ Each prompt was run on the same 50 messages. Versions 2–4 were run twice to ch
 Full results: [results/v1_vs_v4.md](results/v1_vs_v4.md) · [results/v1_vs_v2.md](results/v1_vs_v2.md) · every run is saved in [results/](results/).
 
 ### V2 planning agent: 10 multi-step scenarios
-<!-- TODO (M6): paste real numbers -->
-| Metric | Score |
-|---|---|
-| Tool selection (precision / recall) | __ / __ |
-| Retrieval hit rate | __% |
-| LLM-as-judge: groundedness (1–5) | __ |
-| LLM-as-judge: safety (1–5) | __ |
-| Judge agreement with my own scoring | __ / 5 cases |
+Two kinds of scoring:
+- **Exact checks in Python:** did the agent call the right tools, and did retrieval find the right guide?
+- **An LLM-as-judge:** it grades each answer from 1 to 5 against a written rubric.
+
+Before trusting the judge, I scored 5 answers myself and compared.
+
+**Step 1: make the judge trustworthy.** Same 10 saved answers each time; only the judge changed.
+
+| Judge | Agrees with me exactly | Within 1 point | What went wrong |
+|---|---|---|---|
+| v1 rubric, gpt-4o-mini | 10/20 (50%) | 85% | Too lenient: said answers covered points they didn't. Also too harsh on caveats that didn't apply. |
+| v2 "quote it or it's MISSING", gpt-4o-mini | 14/20 (70%) | 85% | Still invented quotes, copying the guide instead of the answer. |
+| v2, gpt-4o | 13/20 (65%) | 95% | Recalculated totals itself, and penalised my "closest homes above budget" feature. |
+| **v3, gpt-4o** (current) | **14/20 (70%)** | **95%** | No invented quotes. |
+
+Python also checks every quote the judge gives against the answer, so a judge that makes up evidence gets caught. Where the judge and I still disagree, the judge was sometimes right. For example, it noticed one answer never mentioned closing costs, which I had missed.
+
+**Step 2: improve the agent.** Graded by the same judge (v3, gpt-4o) on the same 10 scenarios:
+
+| Metric | `agent_v1` | `agent_v2` (current) |
+|---|---|---|
+| Tool selection precision / recall | 0.89 / 0.80 | 0.89 / 0.80 |
+| Retrieval hit rate | 7/8 | 7/8 |
+| Judge: groundedness (1–5) | 4.6 | **4.9** |
+| Judge: covers the checklist | 4.4 | **4.8** |
+| Judge: safety | 4.7 | **5.0** |
+| Judge: helpfulness | 4.4 | **4.9** |
+
+**What changed from v1 to v2, and why:**
+1. **"Explain how buydowns work…" got only a list of homes.** The model forgot the "explain" part after reading long tool results. → The planner now records "explain first: …", and Python repeats it as the last thing the model reads before it answers.
+2. **A home $72,000 over budget was called "slightly above".** → The search tool now labels each home in Python: "slightly above budget" up to $30k, and "well above budget" beyond that. The model must use that label.
+3. **"Listings are fictional" was left out in 4 of 10 answers**, although the prompt asked for it. → Python adds the note whenever listings are named and the answer doesn't already say it.
+4. **No home had "step-free entry", so the agent just said "nothing found".** → The search now returns homes that match everything else, and the agent tells the user to check the feature with the builder.
+
+The lesson repeats from Milestone 4: **a rule that must always hold belongs in code, not in a prompt.**
+
+**Still open:**
+- A03 never states the 2–5% closing-cost range.
+- Retrieval misses kb_002 on A01 ("earn" vs "income").
+- A10 makes 21 tool calls.
+- 10 scenarios is a small set.
+
+Full results: every run is saved in [results/](results/), named `v2_eval_*`, `v2_rejudge_*` and `v2_agreement_*`.
 
 ## Tracing
 
@@ -142,6 +177,8 @@ cp .env.example .env          # add your OpenAI key
 phoenix serve                 # in a second terminal → http://localhost:6006
 python scripts/check_setup.py
 python evals/run_v1_eval.py --prompt router_v4 --trace
+python evals/run_v2_eval.py   # agent eval + LLM-as-judge (set JUDGE_MODEL in .env)
+python evals/score_by_hand.py # score 5 answers yourself, then compare with the judge
 streamlit run app.py
 ```
 
