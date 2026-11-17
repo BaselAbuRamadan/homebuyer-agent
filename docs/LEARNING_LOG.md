@@ -48,7 +48,7 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **What clicked:** you have to evaluate the evaluator. A judge is a model with its own blind spots. And a disagreement isn't always the judge's fault: it caught that A03 never mentioned closing costs, which I'd missed.
 - **Improvement round (agent_v1 → v2):** judge scores went up on every criterion (safety 4.7 → 5.0, helpfulness 4.4 → 4.9). Three of the four fixes ended up in code, not the prompt:
   - "slightly / well above budget" is decided in Python, with $30k as the line, which I chose
-  - the "fictional" note is added by Python
+  - the note about the listing data is added by Python (in M7 it moved to one line in the website's sidebar)
   - the "explain first" reminder is placed as the last thing the model reads
   - the "check the feature with the builder" fallback is in the search tool
   
@@ -56,4 +56,9 @@ Prompts for each entry: *What did I build? What concept clicked? What broke, and
 - **Decisions I made:** anything $30k or less over budget is "slightly"; "explain" questions must be explained, not just answered with listings; I score first and see the judge second.
 
 ## M7: Demo and README
--
+- **Built:** a public Streamlit app (`app.py`). It has a ChatGPT-style start screen with 4 example cards, a chat view, and an "Under the hood" panel under each answer showing the intent, model, plan, tool calls and guides. Safety for a public app: the key comes from Streamlit secrets, there are 15 questions per visitor plus a daily limit shared by all visitors, a 500-character cap, the input locks while answering, and errors show a friendly message instead of a traceback. Phoenix only loads when tracing is on, so the deployed app installs fast.
+- **Checked against Streamlit's own guide:** I removed all custom CSS and used native elements and the theme file instead. Hand-written CSS can break with any Streamlit update.
+- **Smarter model experiment:** gpt-4o for everything wasn't clearly better than gpt-4o-mini on my 10 scenarios. Reading the answers showed why: it searched without my budget and once threw away its own explanation. Both were holes in **my** code that a cheaper model happened not to hit. I fixed them in Python: the budget is added automatically, and text written next to a tool call is kept.
+- **Decision I made:** gpt-4o-mini for everyday questions, gpt-4o **only when needed**: plans with 3+ tool steps, or a retry when a cheap attempt fails a plain check. Result: same quality, 17 tool calls instead of 29, slowest answer 16 s instead of 22 s. If gpt-4o is unavailable, the answer falls back to mini.
+- **Retrieval fix:** BM25 matches exact words, so "debts/earn" never found the guide about "debt/income". I built a 26-question retrieval test and added plural handling plus a small list of everyday-word matches, keeping only what helped: 24/26 → 26/26. That also fixed A03's missing "closing costs 2–5%", which had been open since M6. It was a retrieval problem, not a model problem.
+- **What clicked:** before going live, check the deployment the way the host will run it. I installed only `requirements.txt` in a fresh environment and drove the real app with real questions. And read the answers behind every score, because the judge still makes mistakes (it marked "$210.35 under budget" wrong when it was exactly the calculator's number).

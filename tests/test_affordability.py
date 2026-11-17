@@ -123,6 +123,25 @@ def test_impossible_inputs_raise_clear_error(kwargs):
         monthly_payment(**kwargs)
 
 
+@pytest.mark.parametrize("kwargs", [
+    {"annual_rate": 0.065},           # 6.5% passed as a fraction
+    {"property_tax_rate": 0.021},     # 2.1% passed as a fraction
+])
+def test_percent_passed_as_fraction_gets_a_clear_error(kwargs):
+    with pytest.raises(ValueError, match="looks like a fraction"):
+        monthly_payment(**{"price": 400_000, "down_payment_pct": 10, "annual_rate": 6.5, **kwargs})
+
+
+def test_real_low_rates_are_still_accepted():
+    # A 0.99% promotional rate and Hawaii's ~0.27% property tax are real values.
+    assert monthly_payment(price=400_000, down_payment_pct=10, annual_rate=0.99, property_tax_rate=0.27)["monthly"]["total"] > 0
+
+
+def test_affordability_also_rejects_fraction_rates():
+    with pytest.raises(ValueError, match="looks like a fraction"):
+        max_affordable_price(95_000, 400, 40_000, 0.065)
+
+
 # ---------- max_affordable_price ----------
 
 def test_cost_at_max_price_equals_budget():

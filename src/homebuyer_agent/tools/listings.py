@@ -1,6 +1,8 @@
 """Deterministic listing tools over data/listings.json. No AI.
 
-All listings are FICTIONAL sample data and must never be presented as real.
+The listings are sample data invented for this demo (see the "_note" in the file and
+scripts/generate_listings.py). They must never be presented as real; the website
+says so once, in its sidebar.
 """
 import json
 from functools import lru_cache
@@ -61,7 +63,8 @@ def search_listings(
         incentive_keyword: text to find in the builder incentive (e.g. "buydown").
         limit: maximum number of results (1-20).
 
-    Returns {"total_matches", "returned", "listings": [...], "note"}. No matches is not an
+    Returns {"total_matches", "returned", "listings": [...]}, plus a "note" when a
+    fallback below needs explaining. No matches is not an
     error: it returns an empty list so the agent can say so honestly. Two fallbacks help
     the agent still be useful:
     - nothing fits max_price -> "closest_above_budget": the cheapest homes matching all the
@@ -108,8 +111,8 @@ def search_listings(
         "total_matches": len(matches),
         "returned": min(len(matches), limit),
         "listings": [_for_output(l) for l in matches[:limit]],
-        "note": "Fictional sample listings for a demo, not real homes.",
     }
+    notes: list[str] = []   # plain-English explanations for the model, only when something needs explaining
     if not matches and max_price is not None and candidates:
         # Nothing within budget: offer the cheapest homes that match everything else,
         # with the gap worked out here so the model never does that arithmetic.
@@ -119,7 +122,7 @@ def search_listings(
              "budget_label": budget_label(l["price_usd"] - max_price)}
             for l in candidates[:CLOSEST_ALTERNATIVES]
         ]
-        result["note"] += " No home matched the max price; closest_above_budget lists the cheapest homes matching the other filters."
+        notes.append("No home matched the max price; closest_above_budget lists the cheapest homes matching the other filters.")
     elif not matches and features:
         # The features were the problem (the data simply doesn't record them for any
         # home that fits). Offer homes matching everything else so the user isn't left
@@ -127,11 +130,13 @@ def search_listings(
         without = within_budget(find(None))
         if without:
             result["matches_without_requested_features"] = [_for_output(l) for l in without[:limit]]
-            result["note"] += (
-                f" No listing records the requested feature(s) {features}. "
+            notes.append(
+                f"No listing records the requested feature(s) {features}. "
                 "matches_without_requested_features lists homes matching all the other filters; "
                 "the buyer should ask the builder whether these homes have the feature(s)."
             )
+    if notes:
+        result["note"] = " ".join(notes)
     return result
 
 
@@ -140,7 +145,7 @@ def get_listing(listing_id: str) -> dict:
     wanted = listing_id.strip().upper()
     for listing in load_listings():
         if listing["id"] == wanted:
-            return {**_for_output(listing), "note": "Fictional sample listing for a demo, not a real home."}
+            return _for_output(listing)
     raise ValueError(f"No listing with id {listing_id!r}")
 
 
@@ -149,7 +154,7 @@ SEARCH_LISTINGS_SCHEMA = {
     "function": {
         "name": "search_listings",
         "description": (
-            "Search the (fictional) new-construction listings. All filters are optional and combined. "
+            "Search the new-construction listings. All filters are optional and combined. "
             "Results are sorted cheapest first. Metros: Austin TX, Dallas TX, Phoenix AZ, Raleigh NC."
         ),
         "parameters": {

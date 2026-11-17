@@ -14,10 +14,11 @@ import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
 
-from openinference.instrumentation.openai import OpenAIInstrumentor
 from openinference.semconv.trace import SpanAttributes
 from opentelemetry import trace
-from phoenix.otel import register
+
+# Phoenix itself is imported inside setup_tracing(), not here. Code that never turns
+# tracing on (like the public web app) then doesn't need the large Phoenix package.
 
 PROJECT_NAME = "homebuyer-agent"
 
@@ -54,6 +55,9 @@ def setup_tracing() -> None:
     - OpenAIInstrumentor patches the openai SDK so each API call becomes a span
       holding the exact messages sent, the reply, latency and token counts.
     """
+    from openinference.instrumentation.openai import OpenAIInstrumentor   # only needed when tracing
+    from phoenix.otel import register
+
     base_url = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006").rstrip("/")
     try:
         urllib.request.urlopen(base_url, timeout=3)

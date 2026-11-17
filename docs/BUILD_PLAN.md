@@ -186,7 +186,7 @@ Then create a small script that shows me 5 random judged cases so I can score th
 
 **Prompt for Claude Code:**
 ```
-Milestone 7. Create app.py with Streamlit: chat interface over run_agent(), plus a collapsible "Under the hood" panel per answer showing intent, plan, tool calls and retrieved doc ids. Add a sidebar note that data is fictional. Then help me update README.md: fill the architecture mermaid diagram to match the real code and populate the results tables from the latest files in results/. Do not invent numbers.
+Milestone 7. Create app.py with Streamlit: chat interface over run_agent(), plus a collapsible "Under the hood" panel per answer showing intent, plan, tool calls and retrieved doc ids. Add a sidebar note that the listings are sample data. Then help me update README.md: fill the architecture mermaid diagram to match the real code and populate the results tables from the latest files in results/. Do not invent numbers.
 ```
 
 **Do yourself:** record a short GIF of the app (ScreenToGif on Windows, Kap on Mac) → `assets/demo.gif`. Write the **"Product thinking"** and **"What I learned"** sections of the README *in your own words*. This is the part that shows you're aiming at AI product ownership, so it shouldn't sound like Claude wrote it.

@@ -1,8 +1,13 @@
-"""Tests for the listing tools over the fictional data/listings.json. No API calls."""
+"""Tests for the listing tools over the sample data in data/listings.json. No API calls."""
 import pytest
 
 from homebuyer_agent.tools import TOOL_FUNCTIONS, TOOL_SCHEMAS
 from homebuyer_agent.tools.listings import budget_label, get_listing, load_listings, search_listings
+
+
+def cheapest(metro: str, min_beds: int) -> int:
+    """Price of the cheapest home in a metro with at least min_beds, worked out from the data."""
+    return min(l["price_usd"] for l in load_listings() if l["metro"].startswith(metro) and l["beds"] >= min_beds)
 
 
 # ---------- search_listings ----------
@@ -16,7 +21,7 @@ def test_no_filters_returns_cheapest_first():
 
 def test_metro_partial_and_case_insensitive():
     result = search_listings(metro="austin", limit=20)
-    assert result["total_matches"] == 8
+    assert result["total_matches"] == sum(l["metro"] == "Austin, TX" for l in load_listings())
     assert all(l["metro"] == "Austin, TX" for l in result["listings"])
 
 
@@ -29,7 +34,7 @@ def test_filters_combine():
 
 def test_status_filter():
     result = search_listings(status="move_in_ready", limit=20)
-    assert result["total_matches"] == 12
+    assert result["total_matches"] == sum(l["status"] == "move_in_ready" for l in load_listings())
     assert all(l["status"] == "move_in_ready" for l in result["listings"])
 
 
@@ -42,8 +47,9 @@ def test_all_requested_features_must_match():
 
 
 def test_incentive_keyword_finds_buydowns_in_phoenix():
-    result = search_listings(metro="Phoenix", incentive_keyword="buydown")
-    assert {l["id"] for l in result["listings"]} == {"L014", "L015"}
+    result = search_listings(metro="Phoenix", incentive_keyword="buydown", limit=20)
+    assert {"L014", "L015"} <= {l["id"] for l in result["listings"]}      # the two original ones
+    assert all("buydown" in l["builder_incentive"].lower() and l["metro"] == "Phoenix, AZ" for l in result["listings"])
 
 
 def test_limit_caps_results_but_reports_total():
@@ -60,14 +66,15 @@ def test_no_results_is_empty_not_an_error():
 
 
 def test_over_budget_search_suggests_closest_homes():
-    # No 3-bed in Austin under 305k, so suggest the cheapest Austin 3-beds instead.
-    result = search_listings(metro="Austin", min_beds=3, max_price=305_000)
+    # A budget below every Austin 3-bed, so suggest the cheapest Austin 3-beds instead.
+    budget = cheapest("Austin", 3) - 50_000
+    result = search_listings(metro="Austin", min_beds=3, max_price=budget)
     assert result["listings"] == []
     closest = result["closest_above_budget"]
     assert 1 <= len(closest) <= 2
     for home in closest:
         assert home["metro"] == "Austin, TX" and home["beds"] >= 3        # other filters still apply
-        assert home["over_budget_by_usd"] == home["price_usd"] - 305_000  # gap worked out in Python
+        assert home["over_budget_by_usd"] == home["price_usd"] - budget   # gap worked out in Python
     assert closest[0]["price_usd"] <= closest[-1]["price_usd"]           # closest first
 
 
@@ -78,17 +85,18 @@ def test_budget_label_says_slightly_only_up_to_30k():
 
 
 def test_closest_homes_carry_a_budget_label():
-    # A01's case: L001 is $72,000 over a $305k budget, so it must NOT be "slightly" above.
-    closest = search_listings(metro="Austin", min_beds=3, max_price=305_000)["closest_above_budget"]
-    assert closest[0]["over_budget_by_usd"] == 72_000
-    assert closest[0]["budget_label"] == "well above budget"
-    near = search_listings(metro="Austin", min_beds=3, max_price=360_000)["closest_above_budget"]
+    # The A01 lesson: a home $72,000 over budget must NOT be called "slightly" above.
+    price = cheapest("Austin", 3)
+    far = search_listings(metro="Austin", min_beds=3, max_price=price - 72_000)["closest_above_budget"]
+    assert far[0]["over_budget_by_usd"] == 72_000
+    assert far[0]["budget_label"] == "well above budget"
+    near = search_listings(metro="Austin", min_beds=3, max_price=price - 17_000)["closest_above_budget"]
     assert near[0]["budget_label"] == "slightly above budget"          # $17,000 over
 
 
 def test_missing_feature_still_offers_homes_matching_the_rest():
-    # A07's case: no listing records "step-free entry", but homes under 400k exist.
-    result = search_listings(max_price=400_000, features=["step-free entry"])
+    # No listing records an "elevator", but homes under 400k exist.
+    result = search_listings(max_price=400_000, features=["elevator"])
     assert result["listings"] == []
     others = result["matches_without_requested_features"]
     assert others and all(l["price_usd"] <= 400_000 for l in others)   # price filter still applies
@@ -113,8 +121,23 @@ def test_unknown_city_gives_no_results():
     assert search_listings(city="Glasgow")["total_matches"] == 0
 
 
-def test_results_are_marked_fictional():
-    assert "Fictional" in search_listings()["note"]
+def test_no_note_when_nothing_needs_explaining():
+    # Where the data comes from is said once on the website, not in every tool result.
+    assert "note" not in search_listings(metro="Austin")
+
+
+def test_accessibility_features_can_be_searched():
+    # A home's own features (single-storey, step-free entry) are fine to filter on.
+    result = search_listings(features=["single-storey", "step-free entry"], max_price=400_000, limit=20)
+    assert result["total_matches"] > 0
+    assert all({"single-storey", "step-free entry"} <= set(l["features"]) for l in result["listings"])
+
+
+def test_dataset_covers_every_metro_with_homes_of_every_size():
+    homes = load_listings()
+    assert len(homes) == 160 and len({l["id"] for l in homes}) == 160
+    for metro in ["Austin, TX", "Dallas, TX", "Phoenix, AZ", "Raleigh, NC"]:
+        assert {l["beds"] for l in homes if l["metro"] == metro} >= {2, 3, 4, 5}
 
 
 def test_bad_status_raises():

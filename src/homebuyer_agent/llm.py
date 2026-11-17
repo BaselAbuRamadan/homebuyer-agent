@@ -8,18 +8,29 @@ Keeping every API call here means:
 from functools import lru_cache
 from typing import TypeVar
 
-from openai import OpenAI
+from openai import APIStatusError, OpenAI
 from pydantic import BaseModel
 
 from homebuyer_agent.config import get_model
 
 T = TypeVar("T", bound=BaseModel)
 
+API_TIMEOUT_SECONDS = 60   # give up on a stuck call instead of waiting the SDK default of 10 minutes
+API_MAX_RETRIES = 2        # the SDK retries connection errors, 429s and 5xx with backoff
+
+
+class ModelCallError(RuntimeError):
+    """The API answered with an HTTP error: unknown model, no access, rate limit, server error.
+
+    Raised instead of the SDK's own exception so other modules (the planner's
+    smart-model fallback) can react without importing the OpenAI SDK.
+    """
+
 
 @lru_cache(maxsize=1)
 def _client() -> OpenAI:
     """Create the OpenAI client once and reuse it (it reads OPENAI_API_KEY from the env)."""
-    return OpenAI()
+    return OpenAI(timeout=API_TIMEOUT_SECONDS, max_retries=API_MAX_RETRIES)
 
 
 def structured_completion(
@@ -59,7 +70,7 @@ def structured_completion(
     return message.parsed
 
 
-def chat_with_tools(messages: list[dict], tools: list[dict], tool_choice: str = "auto"):
+def chat_with_tools(messages: list[dict], tools: list[dict], tool_choice: str = "auto", model: str | None = None):
     """One turn of a conversation where the model may ask to call tools.
 
     The model sees the conversation so far plus the tool "menu" (JSON schemas).
@@ -67,13 +78,18 @@ def chat_with_tools(messages: list[dict], tools: list[dict], tool_choice: str = 
     (name + JSON arguments) that our code must run and send back.
 
     tool_choice="none" forces a text answer (used when the loop hits its limit).
+    model: override the model name (the planner passes SMART_MODEL when needed); default is OPENAI_MODEL.
     Returns the assistant message (has .content and .tool_calls).
+    Raises ModelCallError if the API answers with an HTTP error.
     """
-    completion = _client().chat.completions.create(
-        model=get_model(),
-        messages=messages,
-        tools=tools,
-        tool_choice=tool_choice,
-        temperature=0,
-    )
+    try:
+        completion = _client().chat.completions.create(
+            model=model or get_model(),
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+            temperature=0,
+        )
+    except APIStatusError as e:
+        raise ModelCallError(f"{type(e).__name__} from model {model or get_model()!r}: {e.message}") from e
     return completion.choices[0].message

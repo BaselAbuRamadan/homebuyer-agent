@@ -30,6 +30,17 @@ def get_model() -> str:
     return model
 
 
+def get_smart_model() -> str:
+    """The stronger model the agent switches to WHEN NEEDED: SMART_MODEL if set, else OPENAI_MODEL.
+
+    Everyday questions use the cheap OPENAI_MODEL. The planner switches to this model
+    for multi-step requests, or retries with it when a cheap attempt fails a check
+    (see planner.choose_model and planner.retry_reason). If SMART_MODEL is not set,
+    everything simply runs on OPENAI_MODEL.
+    """
+    return os.getenv("SMART_MODEL") or get_model()
+
+
 def get_judge_model() -> str:
     """Model used by the LLM-as-judge: JUDGE_MODEL if set, otherwise OPENAI_MODEL.
 

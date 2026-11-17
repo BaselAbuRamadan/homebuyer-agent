@@ -28,6 +28,8 @@ def print_details(result: AgentResult) -> None:
     """Show what happened inside the agent: intent, docs, plan, tool calls."""
     print("  ── under the hood ──")
     print(f"  intent:    {result.intent}  ({result.route_reasoning})")
+    if result.model:
+        print(f"  model:     {result.model}  ({result.model_reason})")
     if result.guardrail:
         print(f"  guardrail: {result.guardrail}")
     if result.retrieved_docs:
@@ -39,6 +41,8 @@ def print_details(result: AgentResult) -> None:
     for call in result.tool_calls:
         outcome = f"ERROR {call.error}" if call.error else short(call.result)
         print(f"  tool:      {call.name}({short(call.arguments, 120)})")
+        if call.note:
+            print(f"             note: {call.note}")
         print(f"             → {outcome}")
     if result.hit_iteration_limit:
         print("  note:      hit the tool-call limit, answered with what it had")
@@ -71,7 +75,7 @@ def main() -> None:
     if args.trace:
         setup_tracing()
 
-    print("🏡 Homebuyer assistant (fictional listings, educational estimates only)\n")
+    print("🏡 Homebuyer assistant (sample listings for this demo, educational estimates only)\n")
     if args.case:
         message = load_case(args.case)
         print(f"You ({args.case}): {message}")

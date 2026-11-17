@@ -11,6 +11,7 @@ import pytest
 
 from homebuyer_agent import planner
 from homebuyer_agent.guardrails import FAIR_HOUSING_RESPONSE, OUT_OF_SCOPE_RESPONSE
+from homebuyer_agent.llm import ModelCallError
 from homebuyer_agent.router import Intent, RouterDecision
 
 
@@ -35,9 +36,22 @@ class ScriptedModel:
         self.replies = list(replies)
         self.calls = []
 
-    def __call__(self, messages, tools, tool_choice="auto"):
-        self.calls.append({"messages": [dict(m) for m in messages], "tool_choice": tool_choice})
+    def __call__(self, messages, tools, tool_choice="auto", model=None):
+        self.calls.append({"messages": [dict(m) for m in messages], "tool_choice": tool_choice, "model": model})
         return self.replies.pop(0)
+
+
+@pytest.fixture(autouse=True)
+def cheap_model_only(monkeypatch):
+    """Every test starts with only the cheap model, whatever the real .env says."""
+    monkeypatch.setenv("OPENAI_MODEL", "cheap-model")
+    monkeypatch.delenv("SMART_MODEL", raising=False)
+
+
+@pytest.fixture
+def smart_model(monkeypatch):
+    """Turn on the 'smarter model when needed' option for one test."""
+    monkeypatch.setenv("SMART_MODEL", "smart-model")
 
 
 @pytest.fixture
@@ -89,14 +103,14 @@ def test_loop_runs_requested_tool_and_feeds_result_back(setup):
         Intent.LISTING_SEARCH,
         replies=[
             reply(tool_calls=[tool_call("c1", "search_listings", metro="Phoenix", incentive_keyword="buydown")]),
-            reply(content="L014 and L015 offer a rate buydown [kb_004]. Listings are fictional."),
+            reply(content="L014 and L015 offer a rate buydown [kb_004]."),
         ],
         plan_steps=["search_listings"],
     )
     result = planner.run_agent("Any Phoenix listings with a buydown?")
 
     assert [t.name for t in result.tool_calls] == ["search_listings"]
-    assert result.tool_calls[0].result["total_matches"] == 2           # the real tool ran
+    assert result.tool_calls[0].result["total_matches"] >= 2           # the real tool ran
     tool_message = model.calls[1]["messages"][-1]                       # what the model saw next
     assert tool_message["role"] == "tool" and "L014" in tool_message["content"]
     assert result.listing_ids == ["L014", "L015"]
@@ -185,25 +199,46 @@ def test_only_recent_history_is_kept(setup):
 
 # ---------- caveats added by Python ----------
 
-def test_fictional_note_added_when_listings_named_without_it(setup):
-    setup(Intent.LISTING_SEARCH, replies=[reply(content="Try L014, it has a buydown.")])
-    answer = planner.run_agent("buydown homes?").answer
-    assert answer.endswith(planner.FICTIONAL_NOTE)
+def test_no_data_note_is_added_under_listing_answers(setup):
+    # Where the listings come from is stated once in the website's sidebar, not per answer.
+    setup(Intent.LISTING_SEARCH, replies=[
+        reply(tool_calls=[tool_call("c1", "search_listings", metro="Phoenix", incentive_keyword="buydown")]),
+        reply(content="Try L014, it has a buydown."),
+    ])
+    assert planner.run_agent("buydown homes?").answer == "Try L014, it has a buydown."
 
 
-def test_no_duplicate_note_when_model_already_said_it(setup):
-    setup(Intent.LISTING_SEARCH, replies=[reply(content="L014 (fictional sample data).")])
-    assert planner.FICTIONAL_NOTE not in planner.run_agent("buydown homes?").answer
+def record(name, result):
+    return planner.ToolCallRecord(name=name, arguments={}, result=result)
 
 
 def test_estimate_note_added_after_money_tools():
-    answer = planner.add_required_notes("About $2,275 a month.", [], ["monthly_payment"])
+    answer = planner.add_required_notes("About $2,275 a month.", [record("monthly_payment", {})])
     assert answer.endswith(planner.ESTIMATE_NOTE)
+
+
+def test_no_duplicate_estimate_note_when_model_already_said_it():
+    text = "About $2,275 a month. This is an educational estimate, not financial advice."
+    assert planner.add_required_notes(text, [record("monthly_payment", {})]) == text
+
+
+def test_slightly_is_corrected_when_every_home_is_well_above_budget():
+    search = record("search_listings", {"listings": [], "closest_above_budget": [
+        {"id": "L001", "budget_label": "well above budget"}, {"id": "L008", "budget_label": "well above budget"}]})
+    fixed = planner.fix_budget_wording("Here are options slightly above your budget:", [search])
+    assert fixed == "Here are options well above your budget:"
+
+
+def test_slightly_is_kept_when_a_home_really_is_slightly_above():
+    search = record("search_listings", {"listings": [], "closest_above_budget": [
+        {"id": "L001", "budget_label": "slightly above budget"}]})
+    text = "L001 is slightly above your budget."
+    assert planner.fix_budget_wording(text, [search]) == text
 
 
 def test_no_notes_for_a_plain_explanation():
     text = "A buydown lowers your rate for a while [kb_004]."
-    assert planner.add_required_notes(text, [], []) == text
+    assert planner.add_required_notes(text, []) == text
 
 
 def test_explain_first_goes_into_the_agent_instructions():
@@ -232,6 +267,155 @@ def test_no_reminder_when_nothing_to_explain(setup):
     ])
     planner.run_agent("homes in Austin")
     assert model.calls[1]["messages"][-1]["role"] == "tool"
+
+
+# ---------- smarter model when needed ----------
+
+COMPLEX_PLAN = ["get_listing", "get_listing", "monthly_payment"]
+LONG_TEXT = "A buydown lowers your interest rate. " * 20          # ~740 characters
+
+
+def test_everyday_request_uses_the_cheap_model(setup, smart_model):
+    model = setup(Intent.LISTING_SEARCH, replies=[reply(content="L001 is in Austin.")], plan_steps=["search_listings"])
+    result = planner.run_agent("homes in Austin")
+    assert [c["model"] for c in model.calls] == ["cheap-model"]
+    assert result.model == "cheap-model" and result.model_reason == "everyday request"
+
+
+def test_multi_step_request_uses_the_smart_model(setup, smart_model):
+    model = setup(Intent.AFFORDABILITY, replies=[reply(content="L001 costs more than L017.")], plan_steps=COMPLEX_PLAN)
+    result = planner.run_agent("compare L001 and L017 monthly")
+    assert [c["model"] for c in model.calls] == ["smart-model"]
+    assert result.model == "smart-model" and "3-step plan" in result.model_reason
+
+
+def test_without_smart_model_everything_uses_the_cheap_model(setup):
+    model = setup(Intent.AFFORDABILITY, replies=[reply(content="ok")], plan_steps=COMPLEX_PLAN)
+    assert planner.run_agent("compare L001 and L017").model == "cheap-model"
+    assert model.calls[0]["model"] == "cheap-model"
+
+
+def test_empty_cheap_answer_is_retried_on_the_smart_model(setup, smart_model):
+    model = setup(Intent.LISTING_SEARCH, replies=[reply(content=""), reply(content="Here are the homes.")])
+    result = planner.run_agent("homes in Austin")
+    assert [c["model"] for c in model.calls] == ["cheap-model", "smart-model"]
+    assert result.answer.startswith("Here are the homes.")
+    assert result.model_reason == "retry: the first answer was empty"
+
+
+def test_too_short_explanation_is_retried_on_the_smart_model(setup, smart_model):
+    model = setup(Intent.PROCESS_QUESTION, replies=[reply(content="It lowers your rate."), reply(content=LONG_TEXT)],
+                  explain_first="how buydowns work")
+    result = planner.run_agent("explain buydowns")
+    assert [c["model"] for c in model.calls] == ["cheap-model", "smart-model"]
+    assert result.answer == LONG_TEXT and "too short" in result.model_reason
+
+
+def test_good_cheap_answer_is_not_retried(setup, smart_model):
+    model = setup(Intent.PROCESS_QUESTION, replies=[reply(content=LONG_TEXT)], explain_first="how buydowns work")
+    planner.run_agent("explain buydowns")
+    assert len(model.calls) == 1
+
+
+def test_unavailable_smart_model_falls_back_to_the_cheap_model(setup, smart_model, monkeypatch):
+    calls = []
+
+    def flaky(messages, tools, tool_choice="auto", model=None):
+        calls.append(model)
+        if model == "smart-model":
+            raise ModelCallError("NotFoundError: model does not exist")
+        return reply(content="Answer from the cheap model.")
+
+    setup(Intent.AFFORDABILITY, plan_steps=COMPLEX_PLAN)
+    monkeypatch.setattr(planner, "chat_with_tools", flaky)
+    result = planner.run_agent("compare L001 and L017")
+    assert calls == ["smart-model", "cheap-model"]
+    assert result.answer.startswith("Answer from the cheap model.")
+    assert result.model == "cheap-model" and result.model_reason.startswith("fallback")
+
+
+def test_cheap_model_failure_is_not_hidden(setup, monkeypatch):
+    def broken(messages, tools, tool_choice="auto", model=None):
+        raise ModelCallError("AuthenticationError")
+
+    setup(Intent.LISTING_SEARCH)
+    monkeypatch.setattr(planner, "chat_with_tools", broken)
+    with pytest.raises(ModelCallError):          # the app turns this into a friendly message
+        planner.run_agent("homes in Austin")
+
+
+def test_failed_retry_keeps_the_first_answer(setup, smart_model, monkeypatch):
+    def cheap_short_smart_down(messages, tools, tool_choice="auto", model=None):
+        if model == "smart-model":
+            raise ModelCallError("RateLimitError")
+        return reply(content="Short.")
+
+    setup(Intent.PROCESS_QUESTION, explain_first="how buydowns work")
+    monkeypatch.setattr(planner, "chat_with_tools", cheap_short_smart_down)
+    result = planner.run_agent("explain buydowns")
+    assert result.answer == "Short." and result.model == "cheap-model"
+
+
+# ---------- answers written next to tool calls ----------
+
+def test_answer_written_next_to_a_tool_call_is_kept(setup):
+    # gpt-4o wrote the whole explanation alongside its search, then only "I've explained...".
+    setup(Intent.PROCESS_QUESTION, replies=[
+        reply(content=LONG_TEXT, tool_calls=[tool_call("c1", "search_listings", city="Glasgow")]),
+        reply(content="I've explained the steps above."),
+    ])
+    answer = planner.run_agent("walk me through buying").answer
+    assert answer.startswith(LONG_TEXT.strip()) and "I've explained the steps above." in answer
+
+
+def test_short_filler_next_to_a_tool_call_is_dropped(setup):
+    setup(Intent.LISTING_SEARCH, replies=[
+        reply(content="Let me check.", tool_calls=[tool_call("c1", "search_listings", city="Glasgow")]),
+        reply(content="No homes matched in Glasgow."),
+    ])
+    assert planner.run_agent("homes in Glasgow").answer == "No homes matched in Glasgow."
+
+
+def test_full_final_answer_is_not_doubled():
+    final = LONG_TEXT + " Here is a recap."
+    assert planner.combine_answer([LONG_TEXT], final) == final
+
+
+# ---------- the buyer's budget is applied to searches ----------
+
+def test_budget_from_affordability_is_added_to_a_search_without_one(setup):
+    model = setup(Intent.AFFORDABILITY, replies=[
+        reply(tool_calls=[tool_call("c1", "max_affordable_price", annual_income=95000, monthly_debts=400,
+                                    down_payment_savings=40000, annual_rate=6.5)]),
+        reply(tool_calls=[tool_call("c2", "search_listings", metro="Austin", min_beds=3)]),   # no max_price!
+        reply(content="Here are the Austin homes within your budget."),
+    ])
+    result = planner.run_agent("I earn 95k... what can I afford in Austin?")
+    search = result.tool_calls[1]
+    assert search.arguments["max_price"] == pytest.approx(305_000, abs=1_000)
+    assert "max_price set" in search.note
+    assert all(home["price_usd"] <= search.arguments["max_price"] for home in search.result["listings"])
+    assert "max_price set" in model.calls[2]["messages"][-1]["content"]      # the model was told
+
+
+def test_explicit_max_price_is_never_overwritten():
+    arguments, note = planner.apply_budget('{"metro": "Austin", "max_price": 500000}', 305_000)
+    assert '"max_price": 500000' in arguments and note is None
+
+
+# ---------- tools that misbehave ----------
+
+def test_crashing_tool_becomes_an_error_message(monkeypatch):
+    def broken_tool(**kwargs):
+        raise KeyError("oops")
+
+    monkeypatch.setitem(planner.TOOL_FUNCTIONS, "get_listing", broken_tool)
+    record = planner.run_tool("get_listing", '{"listing_id": "L001"}')
+    assert "failed unexpectedly" in record.error
+
+
+def test_non_object_arguments_are_rejected():
+    assert "JSON object" in planner.run_tool("search_listings", "[1, 2]").error
 
 
 def test_answer_guardrail_replaces_unsafe_answer(setup):

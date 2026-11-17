@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 .phoenix/
 .cursor/
+
+# Local Streamlit secrets (on Streamlit Cloud they live in the app's Secrets box)
+.streamlit/secrets.toml

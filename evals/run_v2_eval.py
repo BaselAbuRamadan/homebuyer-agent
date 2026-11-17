@@ -18,6 +18,7 @@ Run:
 import argparse
 import json
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from openinference.semconv.trace import OpenInferenceSpanKindValues, SpanAttribu
 from pydantic import BaseModel, Field
 
 from homebuyer_agent import planner
-from homebuyer_agent.config import EVAL_DIR, RESULTS_DIR, get_judge_model, get_model
+from homebuyer_agent.config import EVAL_DIR, RESULTS_DIR, get_judge_model, get_model, get_smart_model
 from homebuyer_agent.eval_metrics import (
     micro_precision_recall,
     normalise_tools,
@@ -89,6 +90,7 @@ JUDGE_SCHEMAS: dict[str, type[BaseModel]] = {
     "answer_judge_v1": JudgeVerdict,
     "answer_judge_v2": JudgeVerdictV2,
     "answer_judge_v3": JudgeVerdictV2,   # same output shape as v2; only the rubric text changed
+    "answer_judge_v4": JudgeVerdictV2,   # v3 without the listing-data caveat (the website states it once)
 }
 
 
@@ -181,10 +183,12 @@ def evaluate_case(case, agent_prompt: str) -> tuple[dict, planner.AgentResult | 
         "expected_kb_docs": "|".join(sorted(expected_docs)),
         "agent_prompt": agent_prompt,
     }
+    start = time.perf_counter()
     try:
         result = planner.run_agent(case.request, agent_prompt=agent_prompt)
     except Exception as e:  # noqa: BLE001 - log the failure and move on to the next case
         return {**row, "error": f"{type(e).__name__}: {e}"}, None
+    row["seconds"] = round(time.perf_counter() - start, 1)   # how long the visitor would wait
 
     called_raw = [t.name for t in result.tool_calls]
     called = normalise_tools(called_raw)
@@ -193,6 +197,7 @@ def evaluate_case(case, agent_prompt: str) -> tuple[dict, planner.AgentResult | 
         "intent": result.intent,
         "plan": " -> ".join(s.tool for s in result.plan.steps) if result.plan else "",
         "tools_called_raw": ",".join(called_raw),
+        "n_tool_calls": len(called_raw),
         "tools_called": "|".join(sorted(called)),
         "tool_tp": tools["tp"], "tool_fp": tools["fp"], "tool_fn": tools["fn"],
         "tool_precision": tools["precision"], "tool_recall": tools["recall"], "tool_exact": tools["exact"],
@@ -200,6 +205,8 @@ def evaluate_case(case, agent_prompt: str) -> tuple[dict, planner.AgentResult | 
         "retrieval_hit": retrieval_hit(expected_docs, result.retrieved_docs),
         "guardrail": result.guardrail or "",
         "hit_iteration_limit": result.hit_iteration_limit,
+        "answer_model": result.model or "",          # which model wrote it ("" for fixed safe replies)
+        "model_reason": result.model_reason or "",
         "answer": result.answer,
         "tool_calls_json": json.dumps([t.model_dump() for t in result.tool_calls], default=str),
         "error": "",
@@ -215,6 +222,8 @@ def print_case(row: dict, i: int, total: int) -> None:
         return
     tick = "✅" if row["tool_exact"] else "❌"
     print(f"   intent: {row['intent']}   plan: {row['plan'] or '(none)'}")
+    if row.get("answer_model"):
+        print(f"   model: {row['answer_model']} ({row.get('model_reason', '')})   time: {row.get('seconds', '?')} s")
     print(f"   {tick} tools  expected: {row['expected_tools'] or '(none)'}   called: {row['tools_called'] or '(none)'}"
           f"   (raw: {row['tools_called_raw'] or '-'})")
     hit = row["retrieval_hit"]
@@ -303,6 +312,15 @@ def headline_metrics(df: pd.DataFrame) -> dict:
         "tool_exact": f"{int(df['tool_exact'].astype(object).fillna(False).astype(bool).sum())}/{len(tool_rows)}",
         "retrieval_hit_rate": f"{int(hits.astype(bool).sum())}/{len(hits)}",
     }
+    if "seconds" in df:
+        metrics["avg_seconds"] = df["seconds"].mean()
+        metrics["max_seconds"] = df["seconds"].max()
+    if "n_tool_calls" in df:
+        metrics["total_tool_calls"] = int(df["n_tool_calls"].fillna(0).sum())
+    if "answer_model" in df and "model_reason" in df:
+        reasons = df["model_reason"].astype(object).fillna("")
+        metrics["smart_model_used"] = int((reasons.str.startswith(("multi-step", "retry"))).sum())
+        metrics["smart_model_retries"] = int(reasons.str.startswith("retry").sum())
     if "judge_fake_quotes" in df:
         metrics["judge_fake_quotes"] = int((df["judge_fake_quotes"].astype(object).fillna("") != "").sum())
     for criterion in CRITERIA:
@@ -343,14 +361,17 @@ def build_summary(df: pd.DataFrame, metrics: dict, info: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate the V2 planning agent.")
     parser.add_argument("--agent-prompt", default=planner.AGENT_PROMPT, help="agent prompt, e.g. agent_v1 or agent_v2")
-    parser.add_argument("--judge", default="answer_judge_v3", choices=sorted(JUDGE_SCHEMAS), help="judge prompt")
+    parser.add_argument("--judge", default="answer_judge_v4", choices=sorted(JUDGE_SCHEMAS), help="judge prompt")
     parser.add_argument("--rejudge", type=Path, help="re-grade the answers saved in this results CSV (no agent run)")
     parser.add_argument("--trace", action="store_true", help="send traces to Phoenix (run 'phoenix serve' first)")
     args = parser.parse_args()
     if args.trace:
         setup_tracing()
 
-    model, judge_model = get_model(), get_judge_model()
+    base_model, smart_model, judge_model = get_model(), get_smart_model(), get_judge_model()
+    # One label for file names: "gpt-4o-mini", or "gpt-4o-mini_smart-gpt-4o" when the
+    # agent may switch to a smarter model when needed.
+    model = base_model if smart_model == base_model else f"{base_model}_smart-{smart_model}"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     judge_prompt = (JUDGE_PROMPTS_DIR / f"{args.judge}.txt").read_text(encoding="utf-8")
 
@@ -362,7 +383,8 @@ def main() -> None:
         agent_prompt = args.agent_prompt
         source = "fresh agent run"
     info = {
-        "Agent model": model,
+        "Base model (router, planner, everyday answers)": base_model,
+        "Smart model (used when needed)": smart_model if smart_model != base_model else "not set",
         "Judge model": judge_model,
         "Prompts": f"{DEFAULT_PROMPT_VERSION}, {planner.PLANNER_PROMPT}, {agent_prompt}",
         "Judge prompt": args.judge,

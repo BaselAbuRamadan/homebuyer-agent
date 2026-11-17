@@ -1,0 +1,27 @@
+id,question,expected_doc
+Q01,What are the steps to buy a new build?,kb_001
+Q02,How long does a to-be-built home usually take?,kb_001
+Q03,Should I get my own agent or attorney when buying from a builder?,kb_001
+Q04,What happens at the final walkthrough with the builder?,kb_001
+Q05,What's the difference between pre-qualification and pre-approval?,kb_002
+Q06,How much house can I afford on a $90k salary?,kb_002
+Q07,What debt-to-income ratio do lenders want?,kb_002
+Q08,Can I buy with only 3% down?,kb_002
+Q09,I earn 120k and have car payments. Will a lender approve me?,kb_002
+Q10,How much are closing costs?,kb_003
+Q11,What fees do I pay at closing?,kb_003
+Q12,What is a Loan Estimate and why compare them?,kb_003
+Q13,Can the escrow and title fees be reduced?,kb_003
+Q14,How do builder rate buydowns work?,kb_004
+Q15,Is a 2-1 buydown better than a permanent buydown?,kb_004
+Q16,Should I take a price reduction or free upgrades from the builder?,kb_004
+Q17,Do I have to use the builder's preferred lender to get the incentive?,kb_004
+Q18,Do I need an inspection on a brand new home?,kb_005
+Q19,What does a 1-2-10 builder warranty cover?,kb_005
+Q20,When should I schedule an 11-month inspection?,kb_005
+Q21,What will my HOA dues cover each month?,kb_006
+Q22,What is a MUD tax district in Texas?,kb_006
+Q23,What makes up the true monthly cost of a home?,kb_006
+Q24,Which neighborhoods have fewer families with kids?,kb_007
+Q25,Can you show me areas where people like us live?,kb_007
+Q26,Can I filter homes for step-free entry and single-storey living?,kb_007

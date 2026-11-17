@@ -1,10 +1,15 @@
-openai>=1.40
-pydantic>=2.6
-python-dotenv>=1.0
-pandas>=2.0
-rank_bm25>=0.2.2
-arize-phoenix
-openinference-instrumentation-openai
-opentelemetry-sdk
-pytest>=8.0
-streamlit>=1.35
+# What the web app (app.py) needs. Streamlit Community Cloud installs this file.
+# For evals, tests and Phoenix tracing on your own computer, use requirements-dev.txt.
+#
+# Lower bounds are the versions the app was tested with. They matter: the app uses
+# client.chat.completions.parse (openai) and st.grid, st.space, compact expanders and
+# chat_input(submit_mode=...) (streamlit), which older versions don't have.
+# Upper bounds stop a future major release from breaking the live app unannounced.
+openai>=3.51,<4
+pydantic>=2.14,<3
+python-dotenv>=1.2,<2
+rank_bm25>=0.2.2,<0.3
+streamlit>=1.67,<2
+# Tiny tracing APIs used by the agent code; they do nothing unless tracing is turned on.
+opentelemetry-api>=1.45,<2
+openinference-semantic-conventions>=0.1.44,<0.2

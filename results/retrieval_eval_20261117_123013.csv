@@ -1,0 +1,27 @@
+id,question,expected_doc,retrieved,top1,top3
+Q01,What are the steps to buy a new build?,kb_001,kb_001|kb_006|kb_005,True,True
+Q02,How long does a to-be-built home usually take?,kb_001,kb_001|kb_005|kb_007,True,True
+Q03,Should I get my own agent or attorney when buying from a builder?,kb_001,kb_001|kb_003|kb_006,True,True
+Q04,What happens at the final walkthrough with the builder?,kb_001,kb_001|kb_005|kb_004,True,True
+Q05,What's the difference between pre-qualification and pre-approval?,kb_002,kb_002|kb_006|kb_001,True,True
+Q06,How much house can I afford on a $90k salary?,kb_002,kb_002|kb_001,True,True
+Q07,What debt-to-income ratio do lenders want?,kb_002,kb_002|kb_003|kb_004,True,True
+Q08,Can I buy with only 3% down?,kb_002,kb_002|kb_001|kb_004,True,True
+Q09,I earn 120k and have car payments. Will a lender approve me?,kb_002,kb_002|kb_006|kb_001,True,True
+Q10,How much are closing costs?,kb_003,kb_003|kb_004|kb_001,True,True
+Q11,What fees do I pay at closing?,kb_003,kb_003|kb_004|kb_001,True,True
+Q12,What is a Loan Estimate and why compare them?,kb_003,kb_003|kb_004|kb_002,True,True
+Q13,Can the escrow and title fees be reduced?,kb_003,kb_003|kb_004|kb_001,True,True
+Q14,How do builder rate buydowns work?,kb_004,kb_004|kb_006|kb_003,True,True
+Q15,Is a 2-1 buydown better than a permanent buydown?,kb_004,kb_004|kb_006|kb_003,True,True
+Q16,Should I take a price reduction or free upgrades from the builder?,kb_004,kb_004|kb_001|kb_003,True,True
+Q17,Do I have to use the builder's preferred lender to get the incentive?,kb_004,kb_004|kb_003|kb_006,True,True
+Q18,Do I need an inspection on a brand new home?,kb_005,kb_005|kb_001|kb_006,True,True
+Q19,What does a 1-2-10 builder warranty cover?,kb_005,kb_005|kb_006|kb_001,True,True
+Q20,When should I schedule an 11-month inspection?,kb_005,kb_005|kb_001|kb_003,True,True
+Q21,What will my HOA dues cover each month?,kb_006,kb_006|kb_001|kb_002,True,True
+Q22,What is a MUD tax district in Texas?,kb_006,kb_006|kb_007|kb_003,True,True
+Q23,What makes up the true monthly cost of a home?,kb_006,kb_006|kb_003|kb_002,True,True
+Q24,Which neighborhoods have fewer families with kids?,kb_007,kb_007|kb_006|kb_005,True,True
+Q25,Can you show me areas where people like us live?,kb_007,kb_007|kb_003,True,True
+Q26,Can I filter homes for step-free entry and single-storey living?,kb_007,kb_007|kb_001|kb_005,True,True

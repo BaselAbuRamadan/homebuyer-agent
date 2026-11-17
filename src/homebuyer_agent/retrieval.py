@@ -21,6 +21,8 @@ STOPWORDS = {
     # (Found by a test: "how MUCH are closing costs" ranked the wrong guide first.)
     "much", "many", "usually", "typically", "actually", "really", "tell", "explain",
     "know", "want", "need", "get", "like", "please", "thanks", "hi", "hello",
+    # Leftovers from apostrophes: "that's" -> "that" + "s", "don't" -> "don" + "t".
+    "s", "t",
 }
 
 
@@ -43,10 +45,54 @@ class RetrievedChunk:
     score: float
 
 
+# Everyday words people type -> words the guides use. Applied to the QUERY only.
+# Found by evaluation (data/eval/retrieval_cases.csv, evals/run_retrieval_eval.py):
+# - "I earn 95k with 400/month in debts" scored 0 against the pre-approval guide,
+#   which says "income" and "debt".
+# - "costs to budget beyond the price" never reached the closing-costs guide.
+# - "steps to buy a new build" shared no words with the process guide
+#   ("stages", "buying", "new-construction").
+# Keys are stemmed words (see _stem), so "costs" and "cost" both match "cost".
+QUERY_SYNONYMS: dict[str, list[str]] = {
+    "earn": ["income"],
+    "salary": ["income"],
+    "make": ["income"],             # "we make 160k combined"
+    "afford": ["income", "debt"],
+    "affordable": ["income"],
+    "cost": ["closing", "fee"],     # the costs of buying include closing costs and fees
+    "fee": ["closing"],
+    "step": ["process", "stage"],
+    "buy": ["buying"],
+}
+
+
+def _stem(word: str) -> str:
+    """Very light plural handling so 'debts' matches 'debt' and 'taxes' matches 'tax'.
+
+    Applied the same way to the guides and the query, so a slightly odd stem
+    (e.g. 'status' -> 'statu') still matches itself.
+    """
+    if len(word) <= 3 or "-" in word or word[0].isdigit():
+        return word
+    if word.endswith("ies"):
+        return word[:-3] + "y"                     # families -> family
+    if word.endswith(("xes", "ches", "shes", "sses")):
+        return word[:-2]                           # taxes -> tax
+    if word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]                           # debts -> debt, costs -> cost
+    return word
+
+
 def tokenize(text: str) -> list[str]:
-    """Lowercase, split into words (keeping things like '2-1' and '1-2-10'), drop stopwords."""
+    """Lowercase, split into words (keeping things like '2-1' and 'move-in' whole),
+    drop stopwords, and handle plurals ('debts' -> 'debt')."""
     words = re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)*", text.lower())
-    return [w for w in words if w not in STOPWORDS]
+    return [_stem(w) for w in words if w not in STOPWORDS]
+
+
+def expand_query(tokens: list[str]) -> list[str]:
+    """Add the guide words for everyday words in the question (see QUERY_SYNONYMS)."""
+    return tokens + [extra for t in tokens for extra in QUERY_SYNONYMS.get(t, [])]
 
 
 def chunk_markdown(doc_id: str, markdown: str) -> list[Chunk]:
@@ -84,6 +130,12 @@ def get_doc_text(doc_id: str) -> str:
     return "\n\n".join(c.text for c in chunks if c.doc_id == doc_id)
 
 
+def doc_title(doc_id: str) -> str:
+    """The first heading of a guide, e.g. 'kb_004' -> 'Builder incentives' (for display)."""
+    chunks, _ = _index()
+    return next((c.heading for c in chunks if c.doc_id == doc_id and c.heading), doc_id)
+
+
 def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     """Return the k chunks that best match the query, best first.
 
@@ -91,7 +143,7 @@ def retrieve(query: str, k: int = 3) -> list[RetrievedChunk]:
     unrelated question can return fewer than k results.
     """
     chunks, bm25 = _index()
-    scores = bm25.get_scores(tokenize(query))
+    scores = bm25.get_scores(expand_query(tokenize(query)))
     ranked = sorted(zip(chunks, scores), key=lambda pair: pair[1], reverse=True)
     return [
         RetrievedChunk(c.doc_id, c.heading, c.text, round(float(s), 3))

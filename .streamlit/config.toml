@@ -1,0 +1,15 @@
+[theme]
+base = "light"
+primaryColor = "#0F766E"            # deep teal: the one accent colour
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F7F6"
+textColor = "#1F2937"
+font = "sans serif"
+baseRadius = "0.75rem"              # softer, card-like corners on inputs and buttons
+showWidgetBorder = true
+
+[client]
+toolbarMode = "minimal"            # hide developer menu items from visitors
+
+[browser]
+gatherUsageStats = false

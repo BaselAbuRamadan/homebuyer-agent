@@ -21,6 +21,16 @@ def _check_range(name: str, value: float, low: float, high: float) -> None:
         raise ValueError(f"{name} must be between {low} and {high}, got {value}")
 
 
+def _check_not_a_fraction(name: str, value: float, smallest_real_pct: float) -> None:
+    """Catch a percent passed as a fraction (0.065 instead of 6.5), which would give a
+    silently wrong answer. Real values are never this small: mortgage rates are well
+    above 0.5% and US property-tax rates are above 0.1%. Zero is still allowed."""
+    if 0 < value < smallest_real_pct:
+        raise ValueError(
+            f"{name}={value} looks like a fraction. Give it in percent, e.g. {value * 100:g} for {value * 100:g}%."
+        )
+
+
 def principal_and_interest(loan: float, annual_rate_pct: float, years: int) -> float:
     """Fixed monthly payment that pays a loan down to exactly zero (amortisation).
 
@@ -78,8 +88,10 @@ def monthly_payment(
         down_payment_pct = down_payment_usd / price * 100
     _check_range("down_payment_pct", down_payment_pct, 0, 100)
     _check_range("annual_rate", annual_rate, 0, 25)
+    _check_not_a_fraction("annual_rate", annual_rate, 0.5)
     _check_range("years", years, 1, 50)
     _check_range("property_tax_rate", property_tax_rate, 0, 10)
+    _check_not_a_fraction("property_tax_rate", property_tax_rate, 0.1)
     _check_range("hoa_monthly", hoa_monthly, 0, 10_000)
     _check_range("insurance_annual", insurance_annual, 0, 100_000)
 
@@ -158,9 +170,11 @@ def max_affordable_price(
     _check_range("monthly_debts", monthly_debts, 0, 1_000_000)
     _check_range("down_payment_savings", down_payment_savings, 0, 100_000_000)
     _check_range("annual_rate", annual_rate, 0, 25)
+    _check_not_a_fraction("annual_rate", annual_rate, 0.5)
     _check_range("target_dti", target_dti, 0.05, 0.6)
     _check_range("years", years, 1, 50)
     _check_range("property_tax_rate", property_tax_rate, 0, 10)
+    _check_not_a_fraction("property_tax_rate", property_tax_rate, 0.1)
     _check_range("hoa_monthly", hoa_monthly, 0, 10_000)
     _check_range("insurance_annual", insurance_annual, 0, 100_000)
 
